@@ -13,6 +13,7 @@
 import { App, TFile, normalizePath } from "obsidian";
 import type { MediaKind, PhotoFeedSettings } from "../types";
 import { kindOfExt } from "../types";
+import { TS_CORE } from "../utils/date";
 
 /** 待写入的本地文件（浏览器 File 的可用子集，便于测试注入） */
 export interface PublishFileLike {
@@ -114,10 +115,15 @@ export function recordItemLines(item: RecordItem): string[] {
   return out;
 }
 
-/** 三级标题时间戳 `### HH:MM` */
-const SEG_LINE_RE = /^###\s+(\d{1,2}):(\d{2})\s*$/;
-/** 列表项时间戳 `- HH:MM`（与解析器的列表时间戳同一套写法） */
-const ITEM_LINE_RE = /^[-*]\s+(\d{1,2}):(\d{2})/;
+/**
+ * 定位已有记录用的两个时间戳正则：三级标题 `### HH:MM`（整行只有时间戳）、
+ * 列表项 `- HH:MM` / `* HH:MM`（时间戳后面的文字算这条记录的正文）。
+ *
+ * 时间部分一律用共用的 `TS_CORE`，与解析器是同一套合法性规则 ——
+ * `24:00` / `25:80` / `99:99` 这类非法时间不会被当成插入锚点。
+ */
+const SEG_LINE_RE = new RegExp(`^###\\s+${TS_CORE}\\s*$`);
+const ITEM_LINE_RE = new RegExp(`^[-*]\\s+${TS_CORE}`);
 
 const normTime = (h: string, m: string): string => `${pad(Number(h))}:${m}`;
 

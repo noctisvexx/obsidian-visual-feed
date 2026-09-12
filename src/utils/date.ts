@@ -2,6 +2,15 @@
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
+/**
+ * 时间戳核心规则：`H:MM` / `HH:MM` / `HH:MM:SS`，**只接受合法 24 小时制**。
+ * 写成这样（而不是 `\d{1,2}:\d{2}`）是为了让 `24:00` / `25:80` / `99:99` 天然不匹配。
+ *
+ * 解析器（`indexer/parse`）与发布器（`publish/publisher`）共用这一条规则 —— 两边对
+ * 「什么算合法时间」的判断必须一致，否则发布时可能把解析器根本不认的非法时间当成插入锚点。
+ */
+export const TS_CORE = "([01]?\\d|2[0-3]):([0-5]\\d)(?::[0-5]\\d)?";
+
 /** Date → YYYY-MM-DD（本地时区） */
 export const fmtDate = (d: Date): string =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

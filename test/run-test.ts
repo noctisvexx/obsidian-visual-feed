@@ -735,6 +735,76 @@ async function main(): Promise<void> {
       m2.indexOf("### 12:00") > m2.indexOf("### 08:00") && m2.indexOf("### 12:00") < m2.indexOf("### 20:00")
     );
     check("分段模式下不会新建任何标题", !/^##\s/m.test(m2), JSON.stringify(m2));
+
+    // ── 时间合法性：发布器与解析器必须用同一条 24 小时制规则 ──
+    // 判据双向核对：解析器认不认这一行 + 发布器会不会把它当插入锚点。
+    {
+      const cases: [string, boolean][] = [
+        ["- 12:56", true],
+        ["- 9:05", true],
+        ["* 12:56", true],
+        ["- 23:59", true],
+        ["- 24:00", false],
+        ["- 25:80", false],
+        ["- 99:99", false],
+      ];
+      const trailer = "正文尾行";
+      for (const [line, valid] of cases) {
+        // 解析器：这一行能不能成为一个记录起点（后面跟一条合法时间来兜底，避免走整篇回退）
+        const parsed = splitRecords([line, "- 23:00 尾", ""].join("\n"), "2026-09-12", "");
+        const parserKnows = parsed.length === 2;
+
+        // 发布器：插一条更晚的记录，看它是否落在「旧记录」与尾行之间
+        const body = [
+          "---",
+          "date: 2026-09-12",
+          "---",
+          "",
+          line,
+          "  ![[a.jpg]]",
+          "",
+          trailer,
+          "",
+        ].join("\n");
+        const out = insertTimestampItem(body, {
+          time: "23:00",
+          caption: "新",
+          embeds: ["![[z.jpg]]"],
+        });
+        const publisherKnows = out.indexOf("- 23:00") < out.indexOf(trailer);
+
+        check(
+          "时间合法性一致：" + line + (valid ? " 有效" : " 无效"),
+          parserKnows === valid && publisherKnows === valid,
+          "parser=" + parserKnows + " publisher=" + publisherKnows
+        );
+      }
+    }
+
+    // 分段风格（### HH:MM）同样只认合法时间
+    const badSeg = ["### 99:99", "非法时间", ""].join("\n");
+    const badSegOut = insertTimestampItem(badSeg, {
+      time: "13:00",
+      caption: "午间",
+      embeds: ["![[z.jpg]]"],
+    });
+    check(
+      "非法分段时间 `### 99:99` 不触发分段模式",
+      badSegOut.includes("- 13:00") && !badSegOut.includes("### 13:00"),
+      JSON.stringify(badSegOut)
+    );
+    const okSeg = ["### 09:05", "早上", "", "### 23:59", "深夜", ""].join("\n");
+    const okSegOut = insertTimestampItem(okSeg, {
+      time: "12:56",
+      caption: "午间",
+      embeds: ["![[z.jpg]]"],
+    });
+    check(
+      "合法分段时间 `### 09:05` / `### 23:59` 正常当锚点",
+      okSegOut.indexOf("### 12:56") > okSegOut.indexOf("### 09:05") &&
+        okSegOut.indexOf("### 12:56") < okSegOut.indexOf("### 23:59"),
+      JSON.stringify(okSegOut)
+    );
   }
 
   // ───────── 8. 发布：写附件 + 追加同一个 md（全内存，不碰真实 Vault）─────────

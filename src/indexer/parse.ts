@@ -8,6 +8,7 @@ import {
   timeFromPath,
   toDateStr,
   toTimeStr,
+  TS_CORE,
 } from "../utils/date";
 import {
   cleanRecordText,
@@ -20,9 +21,7 @@ import {
   type RawImageRef,
 } from "../utils/text";
 
-/** HH:MM 或 HH:MM:SS；写成这样是为了只接受合法 24 小时制（`25:80` 天然不匹配） */
-const TS_CORE = "([01]?\\d|2[0-3]):([0-5]\\d)(?::[0-5]\\d)?";
-/** 列表时间戳 `- HH:MM`；时间戳后面的文字算进该 Post 正文 */
+/** 列表时间戳 `- HH:MM`；时间戳后面的文字算进该 Post 正文（时间合法性由 TS_CORE 统一保证） */
 const LIST_TS_RE = new RegExp(`^\\s*[-*]\\s+${TS_CORE}(?:\\s+(.*))?$`);
 /** 三级标题时间戳 `### HH:MM`；要求整行只有时间戳 */
 const HEAD_TS_RE = new RegExp(`^\\s*###\\s+${TS_CORE}\\s*$`);
