@@ -2,7 +2,7 @@ import esbuild from "esbuild";
 import process from "process";
 
 const banner = `/*
- * obsidian-photo-feed (视界 · Visual Feed)
+ * visual-feed (Visual Feed · 视界)
  * 纯本地 Instagram 风格照片流插件
  * 构建产物请勿直接编辑
  */`;

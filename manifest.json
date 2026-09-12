@@ -1,9 +1,10 @@
 {
-  "id": "obsidian-photo-feed",
-  "name": "视界 · Visual Feed",
-  "version": "1.4.1",
+  "id": "visual-feed",
+  "name": "Visual Feed",
+  "version": "1.5.0",
   "minAppVersion": "1.5.0",
-  "description": "把你散落在笔记里的照片和视频重新组织成 Instagram 风格的照片流：单列 Feed 与网格瀑布流随手切换、多图轮播、原图浏览、照片框比例可调、可发布新照片与视频。纯本地，不复制原文件、不改动原笔记。",
+  "description": "Turn the photos and videos scattered across your notes into an Instagram-style feed: single-column posts or a masonry grid, carousels, a full-screen lightbox, and a publish flow. Local-only; never copies files or edits your notes.",
   "author": "noctis",
+  "authorUrl": "https://github.com/noctisvexx",
   "isDesktopOnly": false
 }

@@ -75,8 +75,8 @@
 ### 手动安装
 
 1. 去 [Releases](https://github.com/noctisvexx/obsidian-visual-feed/releases) 下载最新版的 `main.js`、`manifest.json`、`styles.css`
-2. 放进 `<你的库>/.obsidian/plugins/obsidian-visual-feed/`
-3. Obsidian 里：设置 → 第三方插件 → 关闭「安全模式」→ 启用「视界 · Visual Feed」
+2. 放进 `<你的库>/.obsidian/plugins/visual-feed/`
+3. Obsidian 里：设置 → 第三方插件 → 关闭「安全模式」→ 启用「Visual Feed」
 
 ### 用 BRAT
 
@@ -86,7 +86,7 @@
 
 ## 快速开始
 
-1. **设置 → 视界 · Visual Feed → 来源文件夹**
+1. **设置 → Visual Feed → 来源文件夹**
 2. 添加一个来源：
    - **路径** —— 要扫描的文件夹（用文件夹选择器挑，支持子文件夹递归）
    - **显示名** —— 在 Feed 里显示的名字，比如「个人记录」
