@@ -29,33 +29,16 @@ import {
 
 const uid = (): string => `src-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
+/** 取文件夹末级名：来源显示名的唯一来源（派生值，不落盘） */
+const folderName = (p: string): string => p.split("/").filter(Boolean).pop() || p || "未命名来源";
+
 export const DEFAULT_SETTINGS: PhotoFeedSettings = {
-  sources: [
-    {
-      id: "src-personal",
-      path: "日记",
-      name: "个人记录",
-      type: "personal",
-      desc: "日常生活记录",
-      enabled: true,
-    },
-    {
-      id: "src-memos",
-      path: "随手记",
-      name: "随手记",
-      type: "personal",
-      desc: "短文记录",
-      enabled: true,
-    },
-    {
-      id: "src-social",
-      path: "社交归档",
-      name: "社交平台",
-      type: "socialMedia",
-      desc: "原创动态",
-      enabled: true,
-    },
-  ],
+  /**
+   * 默认**不预置任何来源**：文件夹结构每个人都不一样，预置示例名既容易被误当成真实路径，
+   * 又会在新装时指向不存在的目录。用户在设置页自己加，空状态有引导提示。
+   * ⚠️ 若以后要改回预置，`name` 必须等于 `path` 的末级名（显示名是不落盘的派生值）。
+   */
+  sources: [],
   groupBy: "record",
   pageSize: 12,
   imageMaxHeight: 78,
@@ -71,14 +54,16 @@ export const DEFAULT_SETTINGS: PhotoFeedSettings = {
   layoutMode: "feed",
   gridTileSize: "medium",
   gridUnit: "photo",
-  publishFolder: "随手记",
+  // 空 = 由用户在发布弹窗里现选（弹窗会显示「（Vault 根目录）」）
+  publishFolder: "",
   attachmentFolder: "",
   autoAddSource: true,
 };
 
 /** 补齐来源条目的缺省字段（兼容手改 data.json / 旧版本） */
 export function normalizeSources(input: unknown): SourceFolder[] {
-  if (!Array.isArray(input)) return DEFAULT_SETTINGS.sources.map((s) => ({ ...s }));
+  // 没有来源配置（新装 / data.json 损坏）→ 走同一套归一化，保证默认来源的显示名也是派生的
+  if (!Array.isArray(input)) return normalizeSources(DEFAULT_SETTINGS.sources);
   const out: SourceFolder[] = [];
   const seen = new Set<string>();
   for (const raw of input) {
@@ -86,11 +71,15 @@ export function normalizeSources(input: unknown): SourceFolder[] {
     const path = String(r.path ?? "").trim().replace(/\/+$/, "");
     if (!path || seen.has(path)) continue;
     seen.add(path);
-    const type: SourceType = r.type === "socialMedia" ? "socialMedia" : "personal";
+    // 兼容旧版本 data.json 里存的 "socialMedia"（那时类型名耦合了具体平台）→ 迁移到通用的 socialMedia
+    const type: SourceType =
+      r.type === "socialMedia" || (r.type as string) === "socialMedia" ? "socialMedia" : "personal";
     out.push({
       id: String(r.id ?? "") || uid(),
       path,
-      name: String(r.name ?? "").trim() || (type === "socialMedia" ? "社交平台" : "个人记录"),
+      // 显示名不进数据模型：永远等于文件夹末级名（用户要求「选什么文件夹就显示什么名」）。
+      // 这里直接丢弃 data.json 里存的旧 name，所以换路径 / 改文件夹名之后重启就自动纠正。
+      name: folderName(path),
       type,
       desc: String(r.desc ?? "").trim(),
       enabled: r.enabled !== false,
@@ -282,27 +271,35 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           cls: "pf-src-path",
           attr: {
             type: "text",
-            placeholder: "文件夹路径，如 社交归档",
+            placeholder: "Vault 内的文件夹路径，或点右侧 📁 选择",
             spellcheck: "false",
           },
         });
         pathInput.value = src.path;
-        new FolderSuggest(this.app, pathInput, (p) => {
-          if (p === src.path) return;
-          pathInput.value = p;
-          src.path = p;
-          void this.applySources(() => renderSources(), true);
-        });
-        pathInput.addEventListener("change", () => {
-          const p = pathInput.value.trim().replace(/\/+$/, "");
-          if (!p || p === src.path) return;
+
+        // 换文件夹 = 显示名跟着换（显示名不存盘，永远由文件夹末级名派生）。
+        const applyNewPath = (raw: string): boolean => {
+          const p = raw.trim().replace(/\/+$/, "");
+          if (!p) return false;
           if (this.plugin.settings.sources.some((s) => s !== src && s.path === p)) {
             new Notice("该文件夹已在来源列表中");
-            pathInput.value = src.path;
-            return;
+            return false;
           }
+          const nextName = folderName(p);
+          // 重选「同一个」文件夹也要顺手纠正对不上的旧名字，
+          // 否则这条会一直卡在错误的名字上，怎么点都改不过来。
+          if (p === src.path && src.name === nextName) return false;
           src.path = p;
+          src.name = nextName;
           void this.applySources(() => renderSources(), true);
+          return true;
+        };
+
+        new FolderSuggest(this.app, pathInput, (p) => {
+          if (applyNewPath(p)) pathInput.value = src.path;
+        });
+        pathInput.addEventListener("change", () => {
+          if (!applyNewPath(pathInput.value)) pathInput.value = src.path;
         });
 
         const pickBtn = line1.createEl("button", {
@@ -312,13 +309,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
         });
         pickBtn.addEventListener("click", () => {
           new FolderPickerModal(this.app, (p) => {
-            if (p === src.path) return;
-            if (this.plugin.settings.sources.some((s) => s !== src && s.path === p)) {
-              new Notice("该文件夹已在来源列表中");
-              return;
-            }
-            src.path = p;
-            void this.applySources(() => renderSources(), true);
+            applyNewPath(p);
           }).open();
         });
 
@@ -333,30 +324,13 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           void this.applySources(() => renderSources(), true);
         });
 
-        // 第二行：显示名称 + 类型 + 说明
+        // 第二行：显示名（只读，跟随文件夹末级名）+ 说明
         const line2 = row.createDiv({ cls: "pf-src-line" });
 
-        const nameInput = line2.createEl("input", {
+        line2.createSpan({
           cls: "pf-src-name",
-          attr: { type: "text", placeholder: "显示名称", spellcheck: "false" },
-        });
-        nameInput.value = src.name;
-        nameInput.addEventListener("change", () => {
-          const v = nameInput.value.trim() || (src.type === "socialMedia" ? "社交平台" : "个人记录");
-          if (v === src.name) return;
-          src.name = v;
-          void this.applySources(undefined, false);
-        });
-
-        const typeSel = line2.createEl("select", { cls: "pf-src-type" });
-        typeSel.add(new Option("Personal", "personal"));
-        typeSel.add(new Option("社交平台", "socialMedia"));
-        typeSel.value = src.type;
-        typeSel.addEventListener("change", () => {
-          const v = typeSel.value === "socialMedia" ? "socialMedia" : "personal";
-          if (v === src.type) return;
-          src.type = v;
-          void this.applySources(undefined, false);
+          text: src.name,
+          attr: { title: "显示名跟随文件夹末级名，换文件夹就会跟着变" },
         });
 
         const descInput = line2.createEl("input", {
@@ -368,7 +342,8 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           const v = descInput.value.trim();
           if (v === src.desc) return;
           src.desc = v;
-          void this.applySources(undefined, false);
+          // 同上：改完说明也要重绘，避免 DOM 行绑在旧对象上
+          void this.applySources(() => renderSources(), false);
         });
       }
     };
@@ -388,7 +363,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
         this.plugin.settings.sources.push({
           id: uid(),
           path: p,
-          name: p.split("/").pop() || p,
+          name: folderName(p),
           type: "personal",
           desc: "",
           enabled: true,
@@ -440,7 +415,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
       .setDesc("发布照片 / 视频时写入的目标文件夹，不跟随 Obsidian 原生日记。");
     makeFolderRow(
       this.plugin.settings.publishFolder,
-      "如 随手记",
+      "Vault 内的文件夹路径，或点右侧 📁 选择",
       async (p) => {
         if (p === this.plugin.settings.publishFolder) return;
         this.plugin.settings.publishFolder = p;
@@ -535,7 +510,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("分组方式")
       .setDesc(
-        "每条记录一个 Post：社交平台 的每条嘟文、Memos 的每条随手记各自独立成帖（更像 Instagram）；" +
+        "每条记录一个 Post：笔记里每一段带时间戳的记录各自独立成帖（更像 Instagram）；" +
           "每个文件一个 Post：同一篇 Markdown 里的照片合并成一帖。"
       )
       .addDropdown((dd) =>
@@ -685,8 +660,8 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("显示来源说明")
-      .setDesc("在 Post 顶部的来源名后面显示来源说明文字")
+      .setName("显示来源")
+      .setDesc("在照片下方显示来源名与来源说明；关掉后首页与大图里都不再出现来源")
       .addToggle((t) =>
         t.setValue(this.plugin.settings.showSourceDesc).onChange(async (v) => {
           this.plugin.settings.showSourceDesc = v;
@@ -769,13 +744,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
 
     if (!rebuild) {
       // 元信息变了：把对应来源的 Post 就地改名，避免一次全量扫描
-      for (const post of this.plugin.indexer.index.posts) {
-        const src = this.plugin.settings.sources.find((s) => s.path === post.srcPath);
-        if (!src) continue;
-        post.src = src.name || src.type;
-        post.srcType = src.type;
-        post.srcDesc = src.desc;
-      }
+      this.plugin.indexer.resyncSourceMeta();
       this.plugin.notifyIndexChanged("settings");
       return;
     }

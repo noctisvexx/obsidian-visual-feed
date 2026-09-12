@@ -118,8 +118,8 @@ const normTime = (h: string, m: string): string => `${pad(Number(h))}:${m}`;
  * 往 md 正文里插入一条带时间戳的记录。
  * 按时间升序插入；已存在相同时间戳时追加在它之后（保持先发的在上面）。
  * 自动识别两种文件风格：
- *  - `## Memos` 段 + `- HH:MM` 列表项（Memos / jp / memoria 风格）
- *  - `### HH:MM` 分段（社交平台 风格）
+ *  - `## Memos` 段 + `- HH:MM` 列表项（日记类插件的常见写法）
+ *  - `### HH:MM` 分段（社交平台同步脚本的常见写法）
  */
 export function insertMemoItem(body: string, item: MemoItem): string {
   const eol = body.includes("\r\n") ? "\r\n" : "\n";
@@ -136,7 +136,7 @@ function insertMemoListItem(lines: string[], eol: string, item: MemoItem): strin
   const block = memoItemLines(item);
   const secHead = lines.findIndex((l) => MEMO_HEAD_RE.test(l));
 
-  // 没有 Memos 段 → 文末补一个
+  // 没有记录段 → 文末补一个
   if (secHead < 0) {
     if (lines.length && lines[lines.length - 1].trim() !== "") lines.push("");
     lines.push("", "## Memos", "");
@@ -180,7 +180,7 @@ function insertMemoListItem(lines: string[], eol: string, item: MemoItem): strin
   return lines.join(eol);
 }
 
-/** `### HH:MM` 分段风格（社交平台） */
+/** `### HH:MM` 分段风格（社交平台同步脚本常用） */
 function insertSegment(lines: string[], eol: string, item: MemoItem): string {
   const marks: { idx: number; time: string }[] = [];
   lines.forEach((l, idx) => {

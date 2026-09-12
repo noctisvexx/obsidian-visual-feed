@@ -302,8 +302,8 @@
 }
 
 /* 来源：纯文字，无底色 / 无边框 / 无装饰色点 —— 照片才是主角
-   ⚠️ 类名带 post- 前缀：设置页的来源行输入框用的是 .pf-src-name / .pf-src-desc，
-      同名的话那套「输入框样式」（底色+边框+13px）会按顺序覆盖这里的文字样式。 */
+   ⚠️ 类名带 post- 前缀：设置页的来源行用的是 .pf-src-path / .pf-src-desc / .pf-src-name，
+      同名的话那套「输入框 / 标签样式」会按顺序覆盖这里的文字样式。 */
 .pf-post-src {
   display: flex;
   align-items: center;
@@ -539,6 +539,12 @@
   flex-wrap: wrap;
 }
 
+/* 索引里只有一个来源（或没有）时整排隐藏：
+   只剩「全部 / 唯一来源」两个选项没有任何意义，只会让人以为还有别的分类。 */
+.pf-chips.pf-chips-hidden {
+  display: none;
+}
+
 .pf-chip {
   border: 1px solid var(--background-modifier-border);
   background: transparent;
@@ -572,8 +578,7 @@
 }
 
 .pf-select,
-.pf-date,
-.pf-src-type {
+.pf-date {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -612,12 +617,48 @@
   border-color: var(--text-error);
 }
 
+/* 面板底部一行：统计在左（能缩），「设置」在右（不缩） */
+.pf-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 10px;
+}
+
 .pf-stat {
   color: var(--text-faint);
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
-  border-top: 1px solid var(--background-modifier-border);
-  padding-top: 10px;
+  min-width: 0;
+}
+
+/* 「打开插件设置」：来源文件夹 / 显示项都在设置页里，从这里一步过去 */
+.pf-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--font-interface);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pf-settings-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.pf-settings-btn .svg-icon {
+  width: 13px;
+  height: 13px;
 }
 
 /* ============================================================
@@ -866,7 +907,6 @@
 }
 
 .pf-src-path,
-.pf-src-name,
 .pf-src-desc {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
@@ -884,16 +924,29 @@
   flex: 1 1 auto;
 }
 
+/* 显示名：只读派生值（永远 = 文件夹末级名），做成一枚小标签，
+   避免长得像输入框让人以为能改 —— 首页/筛选里显示的就是这个名字。 */
 .pf-src-name {
-  flex: 0 0 116px;
+  flex: 0 0 auto;
+  max-width: 46%;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  user-select: none;
 }
 
 .pf-src-desc {
   flex: 1 1 auto;
-}
-
-.pf-src-type {
-  flex: 0 0 auto;
 }
 
 .pf-src-pick,

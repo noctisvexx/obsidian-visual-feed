@@ -4,21 +4,25 @@ import { Lightbox } from "../components/Lightbox";
 import { openPostSource } from "../components/PostCard";
 import { PublishModal } from "../publish/PublishModal";
 import type PhotoFeedPlugin from "../main";
-import type { FeedPost, FeedLayout, GridTileSize, GridUnit, SourceType } from "../types";
+import type { FeedPost, FeedLayout, GridTileSize, GridUnit } from "../types";
 import type { FrameRatioConfig } from "../utils/ratio";
 
 export const PHOTO_FEED_VIEW_TYPE = "photo-feed";
 
-type TypeFilter = "all" | SourceType;
-
+/**
+ * 筛选状态。
+ *  - src："all" 或某个来源的显示名（= Post.src，就是设置页里配的显示名称）
+ *  - year："all" 或 "YYYY"
+ *  - from/to：起始/结束日期 "YYYY-MM-DD"，空串表示不限
+ */
 interface FilterState {
-  type: TypeFilter;
+  src: string;
   year: string;
   from: string;
   to: string;
 }
 
-const NO_FILTER: FilterState = { type: "all", year: "all", from: "", to: "" };
+const NO_FILTER: FilterState = { src: "all", year: "all", from: "", to: "" };
 
 /**
  * 视界视图：
@@ -162,27 +166,7 @@ export class PhotoFeedView extends ItemView {
     panel.createDiv({ cls: "pf-panel-title", text: "筛选" });
 
     this.chipsEl = panel.createDiv({ cls: "pf-chips" });
-    (
-      [
-        ["all", "全部"],
-        ["personal", "个人记录"],
-        ["socialMedia", "社交平台"],
-      ] as [TypeFilter, string][]
-    ).forEach(([value, label]) => {
-      const chip = this.chipsEl.createEl("button", {
-        cls: "pf-chip",
-        text: label,
-        attr: { type: "button" },
-      });
-      chip.dataset.value = value;
-      if (value === this.filter.type) chip.addClass("pf-chip-active");
-      chip.addEventListener("click", () => {
-        if (this.filter.type === value) return;
-        this.filter.type = value;
-        this.syncChips();
-        this.render();
-      });
-    });
+    this.renderSourceChips();
 
     const filters = panel.createDiv({ cls: "pf-filters" });
 
@@ -226,7 +210,22 @@ export class PhotoFeedView extends ItemView {
       this.scrollEl.scrollTop = 0;
     });
 
-    this.statEl = panel.createDiv({ cls: "pf-stat" });
+    // 底部一行：左边统计当前筛出多少条，右边直接跳插件设置。
+    // 来源文件夹、显示项全在设置页里配，用户在这个面板里发现「没有我要的来源」时，
+    // 最顺手的动作就是从这儿过去 —— 而不是跑去「设置 → 第三方插件 → Visual Feed」翻。
+    const foot = panel.createDiv({ cls: "pf-panel-foot" });
+    this.statEl = foot.createDiv({ cls: "pf-stat" });
+    const settingsBtn = foot.createEl("button", {
+      cls: "pf-settings-btn",
+      attr: { type: "button", "aria-label": "打开插件设置", title: "打开插件设置" },
+    });
+    setIcon(settingsBtn, "settings");
+    settingsBtn.createSpan({ text: "设置" });
+    settingsBtn.addEventListener("click", () => {
+      this.closePanel();
+      this.plugin.openSettings();
+    });
+
     panel.hide();
   }
 
@@ -253,16 +252,69 @@ export class PhotoFeedView extends ItemView {
     this.filterFab.removeClass("pf-fab-active");
   }
 
+  /**
+   * 来源 chips：**按索引里实际存在的来源动态生成**，标签直接用设置页里配的显示名称。
+   * 这里不写死任何来源名——改了来源文件夹/换了名字，chips 跟着变。
+   * 只有一个来源（或没有）时整排隐藏：「全部 / 唯一来源」两个选项没有任何意义。
+   */
+  private renderSourceChips(): void {
+    const counts = new Map<string, number>();
+    for (const p of this.plugin.indexer.getPosts()) {
+      const name = (p.src || "").trim();
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    // 多的排前面（顺手把最常用的来源放在最顺手的位置）
+    const names = [...counts.keys()].sort(
+      (a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b, "zh")
+    );
+
+    const multi = names.length > 1;
+    // 来源被改名/删掉了 → 退回「全部」；
+    // 只剩一个来源时也要退回：chips 已经隐藏，用户没法再改回来，
+    // 留着一个看不见的激活筛选（按钮亮着小圆点却找不到出处）最让人困惑。
+    if (!multi || !names.includes(this.filter.src)) {
+      this.filter.src = "all";
+    }
+
+    this.chipsEl.toggleClass("pf-chips-hidden", !multi);
+    const wanted = multi ? names.join("|") : "";
+    if (this.chipsEl.dataset.built === wanted) {
+      this.syncChips();
+      return;
+    }
+
+    this.chipsEl.empty();
+    if (multi) {
+      const items: [string, string][] = [["all", "全部"], ...names.map((n): [string, string] => [n, n])];
+      for (const [value, label] of items) {
+        const chip = this.chipsEl.createEl("button", {
+          cls: "pf-chip",
+          text: label,
+          attr: { type: "button" },
+        });
+        chip.dataset.value = value;
+        chip.addEventListener("click", () => {
+          if (this.filter.src === value) return;
+          this.filter.src = value;
+          this.syncChips();
+          this.render();
+        });
+      }
+    }
+    this.chipsEl.dataset.built = wanted;
+    this.syncChips();
+  }
+
   private syncChips(): void {
     for (const chip of Array.from(this.chipsEl.children) as HTMLElement[]) {
-      chip.toggleClass("pf-chip-active", chip.dataset.value === this.filter.type);
+      chip.toggleClass("pf-chip-active", chip.dataset.value === this.filter.src);
     }
   }
 
   /** 有筛选条件生效时，在按钮上点一个小圆点提示 */
   private syncFilterBadge(): void {
     const on =
-      this.filter.type !== "all" ||
+      this.filter.src !== "all" ||
       this.filter.year !== "all" ||
       !!this.filter.from ||
       !!this.filter.to;
@@ -327,9 +379,9 @@ export class PhotoFeedView extends ItemView {
 
   /** 筛选 + 排序（最新 → 最旧） */
   private selectPosts(): FeedPost[] {
-    const { type, year, from, to } = this.filter;
+    const { src, year, from, to } = this.filter;
     const list = this.plugin.indexer.getPosts().filter((p) => {
-      if (type !== "all" && p.srcType !== type) return false;
+      if (src !== "all" && p.src !== src) return false;
       if (year !== "all" && !p.date.startsWith(year)) return false;
       if (from && p.date < from) return false;
       if (to && p.date > to) return false;
@@ -365,6 +417,7 @@ export class PhotoFeedView extends ItemView {
 
   render(): void {
     if (!this.built) return;
+    this.renderSourceChips();
     const posts = this.selectPosts();
     this.currentPosts = posts;
     this.syncYearOptions();
@@ -405,7 +458,9 @@ export class PhotoFeedView extends ItemView {
       this.currentPosts,
       post.id,
       index,
-      (p) => void openPostSource(this.app, p)
+      (p) => void openPostSource(this.app, p),
+      // 大图里的来源名跟卡片共用「显示来源」开关：关掉后视图内哪个角落都不出现来源
+      this.plugin.settings.showSourceDesc
     );
   }
 

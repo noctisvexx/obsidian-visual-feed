@@ -10,7 +10,7 @@
 
 ## 它解决什么问题
 
-用久了 Obsidian 之后，照片是**散落**的：今天的记录在 `日记/2026/0901.md`，一条嘟文在 `社交归档/2026-09-01.md`，随手记又在另一个文件夹里。想回看「我以前拍过什么」，只能在文件树里翻。
+用久了 Obsidian 之后，照片是**散落**的：今天的记录在 `日记/2026/0901.md`，一条动态在 `社交归档/2026-09-01.md`，随手记又在另一个文件夹里。想回看「我以前拍过什么」，只能在文件树里翻。
 
 视界不改你的目录结构，也不要求你把照片搬到统一的地方。它只是**按你给的范围建一份索引**，然后把照片按时间倒序铺出来 —— 于是你的笔记结构完全不用动，但你多了一个专门用来看照片的地方。
 
@@ -66,7 +66,7 @@
 
 ### 筛选
 
-左下角筛选按钮：按**来源**（全部 / 个人记录 / 社交平台 / 你自定义的任意来源）+ **年份** + **起止日期**。面板默认收起，点外面或 `Esc` 自动关；有筛选生效时按钮上会有个小圆点。
+左下角筛选按钮：按**来源** + **年份** + **起止日期**。来源列表不是写死的，而是**按索引里实际存在的来源动态生成**，标签就是你在设置里填的**显示名**（`全部` 永远排第一）；只有一个来源时整排自动隐藏 —— 「全部 / 唯一来源」两个选项没有意义。面板默认收起，点外面或 `Esc` 自动关；有筛选生效时按钮上会有个小圆点。面板底部一行是「当前条数 + ⚙ 设置」，来源文件夹、显示项想改就点这儿一步跳过去。
 
 ---
 
@@ -89,8 +89,7 @@
 1. **设置 → Visual Feed → 来源文件夹**
 2. 添加一个来源：
    - **路径** —— 要扫描的文件夹（用文件夹选择器挑，支持子文件夹递归）
-   - **显示名** —— 在 Feed 里显示的名字，比如「个人记录」
-   - **类型** —— 个人记录 / 社交平台（只影响筛选分类）
+   - **显示名** —— 只读，自动等于路径的末级文件夹名（选什么文件夹就显示什么名，不用手填）
    - **说明** —— 可选，显示在来源旁边
 3. 用命令「重建视界索引」建一次索引
 4. 点左侧边栏的图片图标（或命令「打开视界」）
@@ -103,8 +102,8 @@
 
 | 设置 | 说明 |
 | --- | --- |
-| **来源文件夹** | 可增删改的扫描范围列表。改路径或启用状态会重建索引；只改显示名/说明则原地打补丁，不重建 |
-| **分组方式** | 每条记录一个 Post（一条嘟文、一条随手记各自成帖）／每个文件一个 Post |
+| **来源文件夹** | 可增删改的扫描范围列表。改路径或启用状态会重建索引；只改说明则原地打补丁，不重建 |
+| **分组方式** | 每条记录一个 Post（一段带时间戳的记录各自成帖）／每个文件一个 Post |
 | **默认布局** | 单列 Feed / 网格瀑布流。首页左下角按钮可随手切换，这里设的是打开时的默认值 |
 | **瀑布流瓦片尺寸** | 小 / 中 / 大（窄屏会自动缩一档，保证能排下多列） |
 | **瀑布流一格** | 每张照片一格（记录摊开，更像照片墙）／每条记录一格（多图在格子里左右滑；网格里不显示张数角标） |
@@ -113,7 +112,7 @@
 | **照片框比例** | 限制范围 / 统一比例 / 原始比例，见上文 |
 | **显示记录文字** | 是否在照片下方显示记录正文（限 10 行） |
 | **正文显示字数上限** | 索引时截断正文字数 |
-| **显示来源说明** | 是否在来源名后面显示说明文字 |
+| **显示来源** | 关掉后首页与大图里都不出现来源（来源名与来源说明一起隐藏）；打开则两者都显示 |
 | **卡片样式** | 关掉后是无边框圆角的贴边无缝效果，更像相册 |
 | **发布文件夹** | 发布功能的默认目标文件夹 |
 | **附件存放文件夹** | 留空 = 跟随 Obsidian 附件设置；`./` = 笔记同目录；`/` = 库根目录 |
@@ -144,7 +143,7 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 290+ 项断言：
+两套测试，加起来 **335** 项断言：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
 - **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页动态重绘。
@@ -160,7 +159,8 @@ npm test        # 打包测试 + 跑端到端测试
 > # 方式二：把库路径写进 test/vault.local（该文件已 gitignore）
 > ```
 >
-> 也可以把 `test/run-test.ts` 顶部的 `PERSONAL` / `MEMOS` / `MASTO` 换成你自己库里的文件夹名。
+> **来源文件夹也不用配**：测试会在运行时从那个库里就地挑几个 md 最多的目录当来源
+> （并顺带识别分段风格），所以仓库里不含任何真实目录名。
 
 ---
 
@@ -175,7 +175,177 @@ npm test        # 打包测试 + 跑端到端测试
 
 ## English
 
-A local-only Obsidian plugin that turns the photos already scattered across your notes into a proper visual feed. Point it at one or more folders, and it indexes every image/video referenced in those Markdown files and renders them as either an Instagram-style single-column feed or a multi-column grid — switchable from the bottom-left corner. It never copies your files, never generates thumbnails, and never edits your existing notes. Includes multi-image carousels, a keyboard-navigable lightbox, configurable frame aspect ratios, and a publish flow for adding new photos/videos.
+> Regroup the photos scattered across your Obsidian notes into a feed you can keep scrolling.
+
+An Obsidian plugin: point it at one or more folders (journals, social-media archives, quick notes, web clippings…), and it pulls out every **image and video** referenced there and lays them out as an Instagram-style timeline — single-column large photos, or a multi-column masonry grid you flip between from the bottom-left corner.
+
+**Runs entirely locally. It does not copy your files, does not generate thumbnails, and does not modify a single one of your notes.**
+
+---
+
+### What it solves
+
+After a while with Obsidian, your photos end up **scattered**: today's entry is in `Journal/2026/0901.md`, a post is in `Social/2026-09-01.md`, a quick note is in yet another folder. To look back at "what did I shoot before?", you have to dig through the file tree.
+
+Visual Feed does not change your folder structure, and it does not ask you to move photos into one place. It simply **builds an index over the scope you give it**, then lays the photos out newest-first — so your note structure stays exactly as it is, and you gain a dedicated place to look at your photos.
+
+---
+
+### Features
+
+#### Two layouts, one click apart
+
+The bottom-left button flips between them, and the choice is remembered:
+
+- **Single-column feed** — Instagram style. Big photos, with the note text and source underneath, one record after another.
+- **Masonry grid** — multiple columns that fill the width, tiles **locked to squares** and cropped to fill, so a whole screenful is scannable at once. In grid mode captions and sources are not rendered at all (not merely hidden), so it stays smooth no matter how many photos you have. The default is **one tile per photo** — every photo in a record gets its own tile; switch to **one tile per record** to keep them together (swipe between images inside the tile). Nothing is overlaid on the tiles — no count badge, no icon, just the photo itself.
+
+Both layouts share the same **batched rendering**: only one batch on first paint, the next appended once a sentinel scrolls into view, prefetched 1200px ahead. Thousands of photos never all land in the DOM at once.
+
+#### Adjustable frame aspect ratio
+
+Source ratios vary wildly (measured: 45% are 1:1, but there are also 1:10 phone screenshots and 15:1 panoramas), so a raw layout looks ragged. Three strategies:
+
+| Mode | Behaviour |
+| --- | --- |
+| **Clamp range** (default 4:5 – 16:9) | Photos inside the range are **left untouched**; only extreme ratios outside it are cropped to the bound. Measured: only around 22% of records are affected |
+| Fixed ratio | Everything cropped to a single ratio (9:16 / 3:4 / 4:5 / 1:1 / 4:3 / 16:9) — the tidiest column |
+| Original | No cropping at all, exactly as shot |
+
+"Max media height" additionally caps how much screen height the photo area may take; when a photo would exceed it, the frame **narrows as a whole** instead of leaving side gaps.
+
+#### Multi-image carousel + full-screen viewer
+
+- Multiple images in one record → a carousel (swipe / drag / arrows / `1/N` badge), with scroll-snap
+- Tap any photo → full-screen lightbox, **swipeable straight across records**, `←` `→` `Esc` on the keyboard, native gestures on touch
+- From the lightbox, one tap on "back to the record" jumps to the exact **line** in that note
+
+#### Publishing photos and videos
+
+The `＋` in the bottom-right corner (or the "Publish media" command):
+
+1. Pick multiple images and videos (dragged in directly inside Obsidian)
+2. Write a caption for each media item individually
+3. Choose a date and time
+4. Choose a target folder (native folder picker)
+
+The plugin then writes to `{target folder}/YYYY/MM/MMDD.md`, embeds media as `![[bare-filename]]`, and puts attachments in the attachment folder you configured (leave it empty to follow Obsidian's own attachment setting).
+
+A few things done deliberately right:
+
+- **One timestamp = one post.** Several posts on the same day are inserted into the same file in ascending `HH:MM` order, instead of each getting its own file.
+- It **follows the format your file already has**: if there is a `### HH:MM` section structure it inserts a section; otherwise a `- HH:MM` list item under `## Memos` (or `## 随记` / `## 日记` / `## Journal`).
+- Windows-illegal characters in filenames are sanitised (colons are especially dangerous — NTFS treats them as ADS and silently truncates the file to 0 bytes), duplicates get a `-1` suffix, and line breaks are preserved as-is.
+- Videos use `<video controls preload="metadata" playsinline>` and **never autoplay**; tapping the video itself will not accidentally trigger the lightbox.
+- After publishing, only **the one file just written** is re-indexed, never the whole vault.
+
+#### Filtering
+
+The bottom-left filter button: by **source** + **year** + **date range**. The source list is not hard-coded — it is **generated dynamically from the sources actually present in the index**, labelled with the **display name** you set in settings (`全部` is always first); when there is only one source the whole row hides itself, since "all / the only source" means nothing. The panel is collapsed by default and closes when you click outside or press `Esc`; a small dot appears on the button whenever a filter is active. The bottom row of the panel shows the current counts plus a **⚙ Settings** button that jumps straight to the plugin's settings page.
+
+---
+
+### Installation
+
+#### Manual
+
+1. Download `main.js`, `manifest.json` and `styles.css` from the latest [Releases](https://github.com/noctisvexx/obsidian-visual-feed/releases)
+2. Put them in `<your vault>/.obsidian/plugins/visual-feed/`
+3. In Obsidian: Settings → Community plugins → turn off "Restricted mode" → enable "Visual Feed"
+
+#### With BRAT
+
+If you have [BRAT](https://github.com/TfTHacker/obsidian42-brat) installed, simply add this repository's URL.
+
+---
+
+### Quick start
+
+1. **Settings → Visual Feed → Source folders**
+2. Add a source:
+   - **Path** — the folder to scan (chosen with the folder picker; subfolders are included recursively)
+   - **Display name** — read-only, always the last segment of the path (whatever folder you pick is what shows up; nothing to type)
+   - **Description** — optional, shown next to the source
+3. Run the "Rebuild Visual Feed index" command once
+4. Click the image icon in the left ribbon (or run the "Open Visual Feed" command)
+
+After that, **creating / modifying / deleting / renaming** files inside Obsidian updates the index incrementally — no manual rebuild needed.
+
+---
+
+### Settings
+
+| Setting | Description |
+| --- | --- |
+| **Source folders** | The list of scanned folders; addable, editable, removable. Changing a path or the enabled state rebuilds the index; changing only the description patches it in place |
+| **Grouping** | One post per record (each timestamped record becomes its own post) / one post per file |
+| **Default layout** | Single-column feed / masonry grid. The home-view button flips it live; this is what it opens with |
+| **Grid tile size** | Small / medium / large (narrow screens step down one size so several columns still fit) |
+| **Grid unit** | One tile per photo (records spread out, more like a photo wall) / one tile per record (swipe between images inside the tile; no count badge in grid) |
+| **Posts per batch** | How many posts each scroll batch appends (5–40); smaller uses less memory |
+| **Max media height** | Upper bound on the photo area's share of the screen (40–90vh) |
+| **Frame aspect ratio** | Clamp range / fixed ratio / original — see above |
+| **Show note text** | Whether to show the note body under the photo (up to 10 lines) |
+| **Caption character limit** | Truncate the body at index time |
+| **Show source** | Whether to show the source name (and its description) in the feed and in the lightbox |
+| **Card style** | Turn it off for a borderless, flush, rounded look — more like a photo album |
+| **Publish folder** | Default target folder for the publish flow |
+| **Attachment folder** | Empty = follow Obsidian's attachment setting; `./` = next to the note; `/` = vault root |
+| **Auto-add publish folder as a source** | Otherwise photos you just published will not show up in the feed |
+| **Open feed on startup** | Automatically open Visual Feed when Obsidian starts |
+
+---
+
+### How it works
+
+- **Index**: scans the Markdown inside the source folders, parses every media reference (`![[...]]`, `![](...)`, HTML tags), and groups them into posts by `record` or `file`. The index is persisted in the plugin's `data.json`.
+- **Incremental**: on startup each file's `mtime` + `size` is compared and only changed files are re-parsed; when nothing changed, zero files are read. Index schema changes are handled with optional fields plus fallbacks, so **upgrading the plugin never requires a full rebuild**.
+- **Never touches your notes**: apart from the explicit "publish" action writing the target file you chose, everything is read-only. Media is not copied, thumbnails are not generated, files are not moved.
+- **Media references**: uses Obsidian's native `app://local/` resource URLs to reference vault files directly; remote images (`https://`) work too.
+- **Theming**: every colour goes through Obsidian theme variables and adapts to dark / light automatically; on mobile the layout avoids the native bottom navbar and keyboard toolbar, and it respects `prefers-reduced-motion`.
+
+---
+
+### Development
+
+```bash
+npm install
+npm run dev     # watch mode (with sourcemaps)
+npm run build   # production build → main.js
+npm run check   # tsc --noEmit
+npm test        # bundle the tests + run the end-to-end suite
+```
+
+#### Tests
+
+Two suites, **335** assertions in total:
+
+- **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
+- **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, settings-page re-rendering.
+
+Every **write in both suites goes through an in-memory overlay** — your real notes on disk are never touched.
+
+> The end-to-end suite needs a real Obsidian vault, and the path is **never hard-coded**:
+>
+> ```bash
+> # option 1: environment variable
+> VISUAL_FEED_VAULT="/path/to/your/vault" npm test
+>
+> # option 2: put the vault path in test/vault.local (gitignored)
+> ```
+>
+> **No source folders to configure either**: the suite picks a few of the vault's
+> markdown-heaviest directories at runtime (detecting their record style on the way),
+> so the repository contains no real folder names.
+
+---
+
+### Known limitations
+
+- Only media **referenced** from Markdown is indexed. Orphan images that never appear in a note are not included.
+- Remote images (`https://`) need a network connection and will not render offline.
+- Videos are limited to formats Obsidian can play natively (mp4 / webm / mov / m4v / mkv / ogv / avi / 3gp).
+- The index is built on demand, so the first open on a large vault is a little slow (instant after that).
 
 ## License
 

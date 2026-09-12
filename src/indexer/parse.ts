@@ -20,10 +20,17 @@ import {
   type RawImageRef,
 } from "../utils/text";
 
-/** 社交平台 分段标题：### HH:MM */
-const MASTO_SEG_RE = /^###\s+(\d{1,2}:\d{2})\s*$/m;
-const MASTO_SEG_SPLIT = /^###\s+(\d{1,2}:\d{2})\s*$/m;
-/** 带时间戳的列表段标题：## Journal / ## Memos / ## 随记 */
+/**
+ * 带时间戳的分段标题：`### HH:MM`
+ * 社交平台同步脚本落盘时普遍用这个格式，所以按时戳识别、不认平台名。
+ */
+const TIME_SEG_RE = /^###\s+(\d{1,2}:\d{2})\s*$/m;
+const TIME_SEG_SPLIT = /^###\s+(\d{1,2}:\d{2})\s*$/m;
+/**
+ * 带时间戳的列表段标题：`## Journal` / `## Memos` / `## 随记` / `## 日记`。
+ * ⚠️ 这些字面量是**用户笔记正文里的段标题**（Journal / Memos 是几个常见日记类插件的写法），
+ *    属于文件格式约定而非平台信息 —— 改动它们会让插件读不到既有笔记，别乱动。
+ */
 const SEG_HEAD_RE = /^##\s*(Journal|Memos|随记|日记)\s*$/i;
 /** Knomo 月度归档日期标题：## [[2026-08-13]] */
 const KNOMO_DAY_RE = /^##\s*\[\[(\d{4}-\d{2}-\d{2})\]\]\s*$/;
@@ -46,8 +53,8 @@ export interface ParsedRecord {
 /**
  * 把一篇 Markdown 解析成若干条「记录」。
  *
- * 一条记录 = 一个 Post。规则：
- *  - 有 `### HH:MM` 分段（社交平台）→ 每段一条（每段 = 一条嘟文）
+ * 一条记录 = 一个 Post。规则（**按正文结构识别，不看来源类型**）：
+ *  - 有 `### HH:MM` 分段（社交平台同步落盘的常见格式）→ 每段一条
  *  - 有 `## Journal` / `## Memos` / `## [[YYYY-MM-DD]]` / `## YYYY-MM-DD 周X` 分段
  *    → 段内每行 `- HH:MM 内容` 一条
  *  - 其余情况 → 整篇算一条（正文）
@@ -82,10 +89,10 @@ const countLines = (s: string): number => (s.match(/\n/g) || []).length;
 
 /** 记录切分（纯函数，便于测试） */
 export function splitRecords(bodyText: string, baseDate: string, baseTime: string): ParsedRecord[] {
-  // ── 1. 社交平台：### HH:MM 分段，每段一条 ──
-  if (MASTO_SEG_RE.test(bodyText)) {
+  // ── 1. 带时间戳的分段（### HH:MM）：每段一条 ──
+  if (TIME_SEG_RE.test(bodyText)) {
     const out: ParsedRecord[] = [];
-    const re = new RegExp(MASTO_SEG_SPLIT.source, "gm");
+    const re = new RegExp(TIME_SEG_SPLIT.source, "gm");
     const marks: { time: string; start: number; bodyStart: number; line: number }[] = [];
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(bodyText)) !== null) {

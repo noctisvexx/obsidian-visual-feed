@@ -6,6 +6,10 @@ import { Carousel } from "./Carousel";
 export interface PostCardConfig {
   imageMaxHeight: number;
   showCaption: boolean;
+  /**
+   * 是否显示来源（来源名 + 来源说明，整块一起）。
+   * 关闭时来源整块都不渲染 —— 只藏说明文字、留着一个孤零零的来源名反而更让人疑惑。
+   */
   showSourceDesc: boolean;
   cardStyle: boolean;
   /** 照片框比例策略 */
@@ -37,6 +41,8 @@ export interface PostCardNode {
  *   照片（多图轮播 / 视频）
  *   正文（可选）
  *   来源 · 2026-09-12 09:30            ⧉
+ *
+ *   来源那一段受「显示来源」开关控制：关掉后只剩日期 + 打开原记录图标。
  */
 export function buildPostCard(
   app: App,
@@ -73,15 +79,19 @@ export function buildPostCard(
     // ── 底部：来源 · 日期 · 打开原记录（全部弱化，照片才是主角）──
     const foot = card.createDiv({ cls: "pf-post-foot" });
 
-    // 来源只留一行小字：没有底色、没有边框、没有装饰色点，别跟照片抢注意力。
+    // 来源整块（来源名 + 说明）由「显示来源」开关统一控制：
+    // 关掉时连来源名本身也不建 —— 要的是「一个开关管住整块来源」，
+    // 而不是留着来源名只藏掉后面那句说明。关掉后仍可从右下角图标打开原记录，功能不丢。
     // ⚠️ 类名必须与设置页的 .pf-src-name / .pf-src-desc 区分开（加 post- 前缀），
-    // 否则设置页那套「输入框样式」会按 CSS 顺序覆盖这里的文字样式（同优先级、后者胜）。
-    const srcEl = foot.createDiv({ cls: "pf-post-src" });
-    const nameEl = srcEl.createSpan({ cls: "pf-post-src-name", text: post.src });
-    nameEl.addEventListener("click", () => cb.onOpenFile(post));
-    nameEl.setAttribute("title", `打开 ${post.file}`);
-    if (config.showSourceDesc && post.srcDesc) {
-      srcEl.createSpan({ cls: "pf-post-src-desc", text: post.srcDesc });
+    // 否则设置页那套样式会按 CSS 顺序覆盖这里的文字样式（同优先级、后者胜）。
+    if (config.showSourceDesc) {
+      const srcEl = foot.createDiv({ cls: "pf-post-src" });
+      const nameEl = srcEl.createSpan({ cls: "pf-post-src-name", text: post.src });
+      nameEl.addEventListener("click", () => cb.onOpenFile(post));
+      nameEl.setAttribute("title", `打开 ${post.file}`);
+      if (post.srcDesc) {
+        srcEl.createSpan({ cls: "pf-post-src-desc", text: post.srcDesc });
+      }
     }
 
     foot.createSpan({

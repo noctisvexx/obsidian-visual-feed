@@ -96,6 +96,27 @@ export class Indexer {
     return this.index.posts;
   }
 
+  /**
+   * 按当前来源配置重算每条 Post 的 src / srcType / srcDesc（显示名是文件夹末级名的派生值，
+   * 不存盘），不做任何文件读取 —— 换文件夹、改说明、以及**启动时纠正旧名字**都走这里。
+   * 返回是否有内容真的变了（变了才需要落盘 / 通知视图）。
+   */
+  resyncSourceMeta(): boolean {
+    const sources = this.plugin.settings.sources;
+    let changed = false;
+    for (const post of this.index.posts) {
+      const src = sources.find((s) => s.path === post.srcPath);
+      if (!src) continue;
+      const name = src.name || src.type;
+      const desc = src.desc || "";
+      if (post.src !== name || post.srcDesc !== desc || post.srcType !== src.type) changed = true;
+      post.src = name;
+      post.srcType = src.type;
+      post.srcDesc = desc;
+    }
+    return changed;
+  }
+
   /** 统计信息（设置页 / 空状态展示） */
   stats(): {
     posts: number;

@@ -44,7 +44,12 @@ export interface RawImageRef {
   caption: string;
 }
 
-const IMG_WIKI_RE = /!\[\[([^\]\n]+)\]\]/g;
+/**
+ * wiki 嵌入：`![[文件]]` / `![[文件|说明]]` / `![[文件|300x200]]`。
+ * ⚠️ 用非贪婪 + 允许方括号：文件名本身可能带 `[` `]`（如 `封面[2024]版.jpg`），
+ *    写成 `[^\]\n]+` 会让这类引用整条匹配不上，既不提取也不清洗。
+ */
+const IMG_WIKI_RE = /!\[\[([^\n]+?)\]\]/g;
 const IMG_MD_RE = /!\[([^\]\n]*)\]\(\s*([^)\n]+?)\s*\)/g;
 const IMG_HTML_RE = /<img\b[^>]*>/gi;
 const VIDEO_HTML_RE = /<video\b[^>]*>/gi;
@@ -137,7 +142,7 @@ const isNoiseLine = (l: string): boolean => {
   if (!t) return true;
   if (/^%%/.test(t)) return true; // Obsidian 注释
   if (/^<%/.test(t)) return true; // Templater
-  if (/^<!--/.test(t)) return true; // HTML 注释（社交平台 同步标记）
+  if (/^<!--/.test(t)) return true; // HTML 注释（同步脚本写的幂等标记）
   if (/^#/.test(t)) return true; // 标题
   if (/^(---|\*\*\*|___)$/.test(t)) return true; // 分隔线
   if (/^> \[!/.test(t)) return true; // callout 标记
@@ -162,9 +167,12 @@ export const cleanRecordText = (raw: string): string => {
   let text = kept
     .join(" ")
     .replace(/^[-*+]\s+/, "")
-    .replace(/\[\[([^\]|]+)(\|([^\]]+))?\]\]/g, (_all, _p1, _p2, label: string) =>
-      label ? label : ""
-    )
+    // 双链 `[[目标]]` / `[[目标|别名]]`：有别名留别名，没有就整段去掉。
+    // 同样要允许目标里带方括号（笔记名带 `[草稿]` 之类）。
+    .replace(/\[\[([^\n]+?)\]\]/g, (_all, inner: string) => {
+      const i = inner.indexOf("|");
+      return i < 0 ? "" : inner.slice(i + 1);
+    })
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/[*_`~]/g, "")
     .replace(/^\s*>\s*/g, "")

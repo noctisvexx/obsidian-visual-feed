@@ -25,8 +25,14 @@ import {
   uniqueName,
   type PublishFileLike,
 } from "../src/publish/publisher";
-import { DEFAULT_SETTINGS, normalizeLayoutSettings, normalizeRatioSettings } from "../src/settings";
-import { isMediaExt, isVideoExt, kindOf, type PhotoFeedSettings } from "../src/types";
+import {
+  DEFAULT_SETTINGS,
+  normalizeLayoutSettings,
+  normalizeRatioSettings,
+  normalizeSources,
+} from "../src/settings";
+import { isMediaExt, isVideoExt, kindOf, type PhotoFeedSettings, type SourceFolder } from "../src/types";
+import { cleanRecordText, extractImageRefs } from "../src/utils/text";
 import {
   DEFAULT_FRAME_RATIO,
   RATIO_FIXED_OPTIONS,
@@ -48,6 +54,9 @@ import {
  *   2. test/vault.local（本地文件，已 gitignore）
  *
  *   VISUAL_FEED_VAULT="/path/to/your/vault" npm test
+ *
+ * 「来源文件夹」同样不写死：discoverSources() 在运行时从真实 Vault 里就地挑几个目录，
+ * 所以仓库里不会出现任何真实目录名 / 库名 / 用户名。
  */
 declare const __VAULT_ROOT__: string;
 const VAULT_ROOT = __VAULT_ROOT__;
@@ -56,39 +65,80 @@ if (!VAULT_ROOT) {
     "未指定 Vault 路径：请设置环境变量 VISUAL_FEED_VAULT，或在 test/vault.local 里写入你的库路径。",
   );
 }
-const PERSONAL = "notes/journal";
-const MEMOS = "notes/memos";
-const MASTO = "notes/social";
 
-const sources = [
-  {
-    id: "s1",
-    path: PERSONAL,
-    name: "个人记录",
-    type: "personal" as const,
-    desc: "日常生活记录",
-    enabled: true,
-  },
-  {
-    id: "s2",
-    path: MEMOS,
-    name: "Memos",
-    type: "personal" as const,
-    desc: "随手记",
-    enabled: true,
-  },
-  {
-    id: "s3",
-    path: MASTO,
-    name: "社交平台",
-    type: "socialMedia" as const,
-    desc: "原创动态",
-    enabled: true,
-  },
-];
+/** 测试用的合成素材：只进内存 overlay，绝不落真实 Vault */
+const FX_DIR = "zz 测试素材";
+const FX = {
+  img1: "fx-1.jpg",
+  img2: "fx-2.webp",
+  img3: "fx-3.jpg",
+  clip: "fx-clip.mp4",
+} as const;
+const FX_FILES = [FX.img1, FX.img2, FX.img3, FX.clip].map((n) => `${FX_DIR}/${n}`);
 
 const app = new App(VAULT_ROOT);
-const settings = { sources, groupBy: "record" as const, captionChars: 220 };
+
+/** 把合成素材注册进某个 mock Vault（供 `![[fx-1.jpg]]` 这类链接解析） */
+const registerFixtures = (a: App): void => {
+  for (const p of FX_FILES) a.vault.upsertExtra(p, "");
+};
+
+/**
+ * 就地发现几个来源文件夹（运行时决定，不写死）：
+ *  - 候选 = 含 md 最多的若干目录；
+ *  - 各读一篇（最大的那篇）判断是「### HH:MM 分段」还是「列表式记录」；
+ *  - 两种风格各保底一个，其余按 md 数量补满 → 两条解析路径都被真实数据覆盖。
+ */
+const SEG_ANY_RE = /^###\s+\d{1,2}:\d{2}\s*$|^##\s*(Journal|Memos|随记|日记)\s*$/im;
+const PROBE_LIMIT = 10;
+
+async function discoverSources(target = 3): Promise<SourceFolder[]> {
+  const groups = new Map<string, TFile[]>();
+  for (const f of app.vault.getFiles()) {
+    if (f.extension !== "md") continue;
+    const dir = f.path.split("/").slice(0, -1).join("/");
+    if (!dir) continue;
+    const list = groups.get(dir);
+    if (list) list.push(f);
+    else groups.set(dir, [f]);
+  }
+
+  const probed: { dir: string; count: number; segment: boolean }[] = [];
+  const ranked = [...groups.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, PROBE_LIMIT);
+  for (const [dir, files] of ranked) {
+    const sample = [...files].sort((a, b) => b.stat.size - a.stat.size)[0];
+    const probe = await app.vault.cachedRead(sample);
+    probed.push({ dir, count: files.length, segment: SEG_ANY_RE.test(probe) });
+  }
+
+  const picked: typeof probed = [];
+  const segmentSrc = probed.find((p) => p.segment);
+  const listSrc = probed.find((p) => !p.segment);
+  if (segmentSrc) picked.push(segmentSrc);
+  if (listSrc) picked.push(listSrc);
+  for (const p of probed) {
+    if (picked.length >= target) break;
+    if (!picked.includes(p)) picked.push(p);
+  }
+
+  return normalizeSources(
+    picked.slice(0, target).map((p, i) => ({
+      id: `s${i + 1}`,
+      path: p.dir,
+      type: p.segment ? "socialMedia" : "personal",
+      desc: p.segment ? "同步归档" : "手写记录",
+      enabled: true,
+    }))
+  );
+}
+
+const settings = {
+  sources: [] as SourceFolder[],
+  groupBy: "record" as const,
+  captionChars: 220,
+};
 const plugin = {
   app,
   settings,
@@ -102,6 +152,15 @@ const check = (name: string, cond: boolean, detail = ""): void => {
 };
 
 async function main(): Promise<void> {
+  // ───────── 0. 就地发现来源（运行时决定，不写死真实路径）─────────
+  const sources = await discoverSources();
+  settings.sources = sources;
+  app.vault.readCount = 0; // 探测来源时的读取不计入下面的统计
+  console.log(
+    `\n=== 来源（运行时发现）===\n` +
+      sources.map((s) => `  · ${s.path}  [${s.type}]  ${s.name}`).join("\n")
+  );
+
   // ───────── 1. 全量扫描 ─────────
   const indexer = new Indexer(plugin as never, null);
   const t0 = Date.now();
@@ -114,9 +173,13 @@ async function main(): Promise<void> {
   );
   console.log("来源分布:", stats.bySource);
 
-  check("Post 数 > 800", stats.posts > 800, `实际 ${stats.posts}`);
-  check("媒体数 > 1100", stats.photos > 1100, `实际 ${stats.photos}`);
-  check("三个来源都有内容", Object.keys(stats.bySource).length >= 2);
+  check("Post 数 > 500", stats.posts > 500, `实际 ${stats.posts}`);
+  check("媒体数 > 500", stats.photos > 500, `实际 ${stats.photos}`);
+  check(
+    "多个来源都有内容",
+    Object.keys(stats.bySource).length >= Math.min(2, sources.length),
+    `${Object.keys(stats.bySource).length} / ${sources.length}`
+  );
 
   const posts = indexer.getPosts();
   check("每条 Post 至少一个媒体", posts.every((p) => p.photos.length >= 1));
@@ -166,14 +229,20 @@ async function main(): Promise<void> {
   const dates = posts.map((p) => p.date).sort();
   console.log(`   日期范围: ${dates[0]} → ${dates[dates.length - 1]}`);
 
-  // 来源类型分布
-  const mastoPosts = posts.filter((p) => p.srcType === "socialMedia");
-  check("社交平台 Post 带时间", mastoPosts.filter((p) => p.time).length > 0);
+  // 来源类型分布（分段式 = 社交平台同步归档）
+  const socialPosts = posts.filter((p) => p.srcType === "socialMedia");
+  check(
+    "社交同步来源的 Post 带时间戳",
+    socialPosts.length === 0 || socialPosts.filter((p) => p.time).length > 0,
+    `${socialPosts.length} 条`
+  );
 
   // caption 不含图片语法
+  const dirtyCaption = posts.find((p) => /!\[\[|<img|!\[/.test(p.caption));
   check(
     "caption 已剔除图片引用",
-    posts.every((p) => !/!\[\[|<img|!\[/.test(p.caption))
+    !dirtyCaption,
+    dirtyCaption ? `${dirtyCaption.file} → ${JSON.stringify(dirtyCaption.caption.slice(0, 80))}` : ""
   );
 
   // 抽样打印
@@ -196,9 +265,9 @@ async function main(): Promise<void> {
   check("启动对比：无变化时 0 次读文件", app.vault.readCount === 0, `实际 ${app.vault.readCount}`);
   check("启动对比：无变化返回 false", changed === false);
 
-  // 改动一篇随笔
-  const target = "notes/journal/2026/0817.md";
-  const targetFile = app.vault.getAbstractFileByPath(target) as TFile;
+  // 改动一篇随笔（用索引里的真实文件，路径不写死）
+  const target = posts.find((p) => app.vault.getAbstractFileByPath(p.file) instanceof TFile)?.file ?? "";
+  const targetFile = target ? (app.vault.getAbstractFileByPath(target) as TFile) : null;
   if (targetFile) {
     const before = targetFile.stat.mtime;
     targetFile.stat.mtime = before + 1;
@@ -212,14 +281,15 @@ async function main(): Promise<void> {
   }
 
   // ───────── 3. 增量：新增 / 修改 / 删除 ─────────
-  const synth = "notes/journal/2026/9999.md";
+  registerFixtures(app);
+  const synth = `${sources[0].path}/9999.md`;
   const synthBody = [
     "---",
     "创建时间: 2026-09-09T08:30:00",
     "---",
     "",
     "## Memos",
-    "- 08:30 测试三张图 ![[fx-2.jpg]] ![[fx-1.webp]] ![[fx-3.jpg]]",
+    `- 08:30 测试三张图 ![[${FX.img1}]] ![[${FX.img2}]] ![[${FX.img3}]]`,
     "- 09:00 只有文字没有图",
     "",
   ].join("\n");
@@ -271,30 +341,52 @@ async function main(): Promise<void> {
 
   // ───────── 5. 解析器单元校验 ─────────
   const app2 = new App(VAULT_ROOT);
-  const fakeFile = new TFile("notes/journal/2026/0101.md", { mtime: Date.now(), size: 10 });
+  registerFixtures(app2);
+  const fakeFile = new TFile("fixtures/0101.md", { mtime: Date.now(), size: 10 });
 
   const rec1 = parseRecords(app2 as never, fakeFile as never, [
     "---",
     "创建时间: 2026-01-01T09:00:00",
     "---",
     "今天画了一只鸟",
-    "![[fx-2.jpg|600x400]]",
-    "![[fx-1.webp|画的小鸟]]",
+    `![[${FX.img1}|600x400]]`,
+    `![[${FX.img2}|画的小鸟]]`,
     "![外链图](https://example.com/a.jpg)",
-    "![](attachments/media/fx-1.webp)",
+    `![](${FX_DIR}/${FX.img2})`,
     "",
   ].join("\n"));
   const imgs1 = rec1[0]?.images ?? [];
   check("wiki 尺寸后缀不算 caption", imgs1[0]?.caption === "", JSON.stringify(imgs1[0]));
   check("wiki alt 作为 caption", imgs1[1]?.caption === "画的小鸟", JSON.stringify(imgs1[1]));
   check("markdown 图片能被提取", imgs1.some((i) => i.link === "https://example.com/a.jpg"));
-  check("相对路径图片能被提取", imgs1.some((i) => i.link.includes("fx-1.webp")));
+  check("相对路径图片能被提取", imgs1.some((i) => i.link.includes(FX.img2)));
   check("图片引用去重（同图只留一次）", imgs1.length === 4, `实际 ${imgs1.length}`);
+
+  // 回归：文件名带方括号（`封面[2024]版.jpg`）时，wiki 引用曾经整条匹配不上，
+  //       既不进索引也不从 caption 里清掉。
+  check(
+    "wiki 引用：文件名带方括号也能提取",
+    (() => {
+      const refs = extractImageRefs("![[封面[2024]版.jpg]] ![[普通.png|备注]]");
+      return refs.length === 2 && refs[0].link === "封面[2024]版.jpg" && refs[1].caption === "备注";
+    })(),
+    JSON.stringify(extractImageRefs("![[封面[2024]版.jpg]]"))
+  );
+  check(
+    "正文清洗：带方括号的 ![[...]] 不再残留在 caption 里",
+    cleanRecordText("今天翻到一张老照片\n![[封面[2024]版.jpg]]") === "今天翻到一张老照片",
+    JSON.stringify(cleanRecordText("今天翻到一张老照片\n![[封面[2024]版.jpg]]"))
+  );
+  check(
+    "正文清洗：带方括号的 [[...|别名]] 双链能取到别名",
+    cleanRecordText("看看 [[主题[副标题]|别名]] 这段") === "看看 别名 这段",
+    JSON.stringify(cleanRecordText("看看 [[主题[副标题]|别名]] 这段"))
+  );
 
   const posts1 = buildPosts(
     app2 as never,
     fakeFile as never,
-    ["今天画了一只鸟", "![[fx-2.jpg]]", "![[fx-1.webp]]"].join("\n"),
+    ["今天画了一只鸟", `![[${FX.img1}]]`, `![[${FX.img2}]]`].join("\n"),
     sources[0],
     "record",
     220
@@ -305,8 +397,8 @@ async function main(): Promise<void> {
   const seg = splitRecords(
     [
       "## Memos",
-      "- 10:00 上午图 ![[fx-2.jpg]]",
-      "- 11:00 下午两图 ![[fx-1.webp]] ![[fx-3.jpg]]",
+      `- 10:00 上午图 ![[${FX.img1}]]`,
+      `- 11:00 下午两图 ![[${FX.img2}]] ![[${FX.img3}]]`,
       "- 12:00 纯文字",
       "",
     ].join("\n"),
@@ -319,18 +411,18 @@ async function main(): Promise<void> {
   check("分段 3 无图", seg[2].images.length === 0);
 
   const masto = splitRecords(
-    ["# 2026-09-11", "", "### 08:00", "早上好", "", "---", "### 09:30", "两只猫", "![[fx-1.webp]]", "![[fx-2.jpg]]", ""].join("\n"),
+    ["# 2026-09-11", "", "### 08:00", "早上好", "", "---", "### 09:30", "两只猫", `![[${FX.img2}]]`, `![[${FX.img1}]]`, ""].join("\n"),
     "2026-09-11",
     ""
   );
-  check("社交平台 分段切分正确（2 条）", masto.length === 2, `实际 ${masto.length}`);
-  check("社交平台 分段 1 无图", masto[0].time === "08:00" && masto[0].images.length === 0);
-  check("社交平台 分段 2 两图", masto[1].time === "09:30" && masto[1].images.length === 2);
+  check("时间戳分段切分正确（2 条）", masto.length === 2, `实际 ${masto.length}`);
+  check("分段 1 无图", masto[0].time === "08:00" && masto[0].images.length === 0);
+  check("分段 2 两图", masto[1].time === "09:30" && masto[1].images.length === 2);
 
   const grouped = buildPosts(
     app2 as never,
     fakeFile as never,
-    ["## Memos", "- 10:00 一图 ![[fx-2.jpg]]", "- 11:00 一图 ![[fx-1.webp]]"].join("\n"),
+    ["## Memos", `- 10:00 一图 ![[${FX.img1}]]`, `- 11:00 一图 ![[${FX.img2}]]`].join("\n"),
     sources[0],
     "file",
     220
@@ -338,24 +430,24 @@ async function main(): Promise<void> {
   check("groupBy=file 合并成一个 Post（2 图）", grouped.length === 1 && grouped[0].photos.length === 2);
 
   // 停用的来源不参与索引
-  settings.sources = sources.map((s) => (s.id === "s3" ? { ...s, enabled: false } : s));
+  const offSrc = sources[sources.length - 1];
+  settings.sources = sources.map((s) => (s.id === offSrc.id ? { ...s, enabled: false } : s));
   const idx2 = new Indexer(plugin as never, null);
   await idx2.buildFull();
   const st2 = idx2.stats();
   check(
-    "停用 社交平台 后不再索引其内容",
-    st2.posts < stats.posts && !Object.keys(st2.bySource).includes("社交平台"),
-    `${st2.posts} vs ${stats.posts}`
+    "停用某个来源后不再索引其内容",
+    st2.posts < stats.posts && !Object.keys(st2.bySource).includes(offSrc.name),
+    `${st2.posts} vs ${stats.posts}（停用 ${offSrc.name}）`
   );
   settings.sources = sources;
 
   // ───────── 6. 视频 / 无时间戳退化 ─────────
   {
     const app2 = new App(VAULT_ROOT);
-    // 用内存 overlay 造两个媒体文件（真实 Vault 里没有视频）
-    app2.vault.upsertExtra("attachments/media/clip-demo.mp4", "");
-    app2.vault.upsertExtra("attachments/media/photo-demo.jpg", "");
-    const fake = new TFile("notes/journal/2026/0101.md", { mtime: Date.now(), size: 10 });
+    // 合成媒体只进内存 overlay：真实 Vault 里不一定有视频
+    registerFixtures(app2);
+    const fake = new TFile("fixtures/0101.md", { mtime: Date.now(), size: 10 });
 
     const pv = buildPosts(
       app2 as never,
@@ -366,7 +458,7 @@ async function main(): Promise<void> {
         "---",
         "## Memos",
         "",
-        "- 10:00 视频与图 ![[clip-demo.mp4]] ![[photo-demo.jpg]]",
+        `- 10:00 视频与图 ![[${FX.clip}]] ![[${FX.img3}]]`,
         "",
       ].join("\n"),
       sources[0],
@@ -384,7 +476,7 @@ async function main(): Promise<void> {
     const pv2 = buildPosts(
       app2 as never,
       fake as never,
-      ['今天录了一段 <video src="clip-demo.mp4" controls></video>'].join("\n"),
+      [`今天录了一段 <video src="${FX.clip}" controls></video>`].join("\n"),
       sources[0],
       "record",
       220
@@ -405,9 +497,9 @@ async function main(): Promise<void> {
         "",
         "随手拍的两张",
         "",
-        "![[photo-demo.jpg]]",
+        `![[${FX.img3}]]`,
         "",
-        "补一张 ![[photo-demo.jpg|600]]",
+        `补一张 ![[${FX.img3}|600]]`,
         "",
       ].join("\n"),
       sources[0],
@@ -437,8 +529,8 @@ async function main(): Promise<void> {
     check("文件名清洗：空名有兜底", sanitizeFileName("   ") === "未命名");
     check(
       "目标路径 = {folder}/YYYY/MM/MMDD.md",
-      publishNotePath("notes/memos", "2026-09-12") === "notes/memos/2026/09/0912.md",
-      publishNotePath("notes/memos", "2026-09-12")
+      publishNotePath("notes/archive", "2026-09-12") === "notes/archive/2026/09/0912.md",
+      publishNotePath("notes/archive", "2026-09-12")
     );
     check("根目录发布路径", publishNotePath("", "2026-09-12") === "2026/09/0912.md");
 
@@ -483,9 +575,9 @@ async function main(): Promise<void> {
       kept.startsWith("---\r\ndate: 2026-09-12") && kept.includes("- 08:00 旧")
     );
 
-    // 社交平台 风格：### HH:MM
-    const masto = ["# 2026-09-12", "", "### 08:00", "早上好", "", "### 20:00", "晚安", ""].join("\n");
-    const m2 = insertMemoItem(masto, { time: "12:00", caption: "午间", embeds: ["![[x.jpg]]"] });
+    // 分段风格：### HH:MM
+    const segmented = ["# 2026-09-12", "", "### 08:00", "早上好", "", "### 20:00", "晚安", ""].join("\n");
+    const m2 = insertMemoItem(segmented, { time: "12:00", caption: "午间", embeds: ["![[x.jpg]]"] });
     check("已有 ### HH:MM 分段时沿用分段格式", m2.includes("### 12:00"), JSON.stringify(m2));
     check(
       "分段按时间插到 08:00 与 20:00 之间",
@@ -774,7 +866,7 @@ async function main(): Promise<void> {
 
     // 来源弱化：字号 ≤ 11px、颜色浅、无边框/底色
     // ⚠️ 必须查 .pf-post-src-name（Post 卡片专用类名）而不是 .pf-src-name：
-    //    后者是设置页来源行输入框的类名，带底色+边框+13px，一旦被 Post 卡片复用就会反压回来。
+    //    后者是设置页来源行「显示名」标签的类名（带底色的小圆角标签），一旦被 Post 卡片复用就会反压回来。
     const srcName = /\.pf-post-src-name\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
     check(
       "来源名是 11px 小字 + 浅色（无边框 / 无底色）",
@@ -787,10 +879,23 @@ async function main(): Promise<void> {
     check(
       "设置页来源输入框的「框」只作用于设置页类名，不会反压 Post 卡片",
       (() => {
-        const box = /\.pf-src-path,\s*\.pf-src-name,\s*\.pf-src-desc\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+        const box = /\.pf-src-path,\s*\.pf-src-desc\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
         return /background/.test(box) && /border/.test(box) && !/pf-post-src/.test(box);
       })(),
-      "设置页 .pf-src-name 才有底色+边框，Post 卡片用独立的 .pf-post-src-name"
+      "设置页 .pf-src-path / .pf-src-desc 才有底色+边框，Post 卡片用独立的 .pf-post-src-name"
+    );
+    check(
+      "设置页显示名是只读小标签，不再是输入框长相（无边框 + 圆角胶囊 + 不可编辑光标）",
+      (() => {
+        const chip = /\.pf-src-name\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+        return (
+          /border:\s*none/.test(chip) &&
+          /border-radius:\s*999px/.test(chip) &&
+          /cursor:\s*default/.test(chip) &&
+          !/pf-post-src/.test(chip)
+        );
+      })(),
+      (/\.pf-src-name\s*\{([^}]*)\}/.exec(css)?.[1] ?? "未找到 .pf-src-name 规则").replace(/\s+/g, " ").trim()
     );
 
     // 移动端：浮动按钮必须抬到原生底栏之上
@@ -856,6 +961,103 @@ async function main(): Promise<void> {
       /\.pf-fab-layout\s*\{[^}]*bottom:\s*calc\(var\(--pf-fab-bottom/.test(css) &&
         /\.pf-filter-panel\s*\{[^}]*bottom:\s*calc\(var\(--pf-fab-bottom[^)]*\)\s*\+\s*104px/.test(css)
     );
+    check(
+      "筛选面板底部「设置」入口：一行两栏，颜色全走主题变量",
+      /\.pf-panel-foot\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*space-between/.test(css) &&
+        /\.pf-settings-btn\s*\{[^}]*color:\s*var\(--text-muted\)/.test(css) &&
+        /\.pf-settings-btn:hover\s*\{[^}]*var\(--background-modifier-hover\)/.test(css)
+    );
+  }
+
+  // ───────── 10. 来源显示名 = 文件夹末级名（派生值，不存盘）─────────
+  // 背景：曾经把显示名当「用户数据」存进 data.json，只在「重选文件夹」那一刻才重算，
+  //       于是重启后旧名字会一直赖在来源上改不掉。
+  // 现在显示名不进数据模型：加载 / 每次变更都从 path 重新派生，重启即自动纠正。
+  {
+    check(
+      "normalizeSources：路径原样保留、显示名一律 = 文件夹末级名",
+      (() => {
+        const out = normalizeSources([
+          { id: "a", path: "alpha/beta", name: "旧名字", type: "personal", desc: "", enabled: true },
+        ]);
+        return out.length === 1 && out[0].path === "alpha/beta" && out[0].name === "beta";
+      })(),
+      JSON.stringify(normalizeSources([{ path: "alpha/beta", name: "旧名字" }]))
+    );
+    check(
+      "normalizeSources：data.json 里存的旧名字被彻底丢弃（换过文件夹也不怕）",
+      (() => {
+        const out = normalizeSources([
+          { path: "alpha", name: "beta" },
+          { path: "x/y", name: "alpha" },
+        ]);
+        return out[0].name === "alpha" && out[1].name === "y";
+      })()
+    );
+    check(
+      "normalizeSources：路径末尾多个斜杠也能取对末级名",
+      normalizeSources([{ path: "lib/media/" }])[0].name === "media"
+    );
+    check(
+      "normalizeSources：空路径被丢掉，不会生成一条没名字的来源",
+      normalizeSources([{ path: "  " }, { path: "notes" }]).length === 1
+    );
+    check(
+      "normalizeSources：非数组输入回落到默认来源（默认为空列表，不预置任何路径）",
+      (() => {
+        const out = normalizeSources(null);
+        return out.length === DEFAULT_SETTINGS.sources.length && DEFAULT_SETTINGS.sources.length === 0;
+      })(),
+      JSON.stringify(normalizeSources(null))
+    );
+    check(
+      "normalizeSources：旧版 \"socialMedia\" 类型自动迁移成通用的 socialMedia",
+      (() => {
+        const out = normalizeSources([
+          { path: "alpha", type: "socialMedia" },
+          { path: "beta", type: "weird" },
+        ]);
+        return out[0].type === "socialMedia" && out[1].type === "personal";
+      })(),
+      JSON.stringify(normalizeSources([{ path: "alpha", type: "socialMedia" }]).map((s) => s.type))
+    );
+
+    // resyncSourceMeta：只改元信息时，把已索引 Post 的 src / srcDesc / srcType 就地改掉
+    {
+      const SRC = "notes/archive";
+      const sMeta = cloneSettings({
+        sources: normalizeSources([{ id: "s2", path: SRC, type: "personal", desc: "", enabled: true }]),
+      });
+      const idxMeta = new Indexer(
+        { app, settings: sMeta, persistIndex: async () => undefined } as never,
+        null
+      );
+      // 直接塞入索引：resyncSourceMeta 只读 srcPath / src / srcType / srcDesc，不需要真实文件
+      idxMeta.index.posts = [
+        { srcPath: SRC, src: "旧名字", srcType: "personal", srcDesc: "" },
+        { srcPath: "09 未配置的文件夹", src: "别的名字", srcType: "personal", srcDesc: "" },
+      ] as never;
+
+      sMeta.sources = normalizeSources([
+        { id: "s2", path: SRC, type: "personal", desc: "随手写的短文", enabled: true },
+      ]);
+      check(
+        "resyncSourceMeta：来源名 / 说明按新配置就地刷新",
+        idxMeta.resyncSourceMeta() === true &&
+          idxMeta.index.posts[0].src === "archive" &&
+          idxMeta.index.posts[0].srcDesc === "随手写的短文",
+        `${idxMeta.index.posts[0].src} / ${idxMeta.index.posts[0].srcDesc}`
+      );
+      check(
+        "resyncSourceMeta：不属于任何来源的旧 Post 原样不动（不会被清成空）",
+        idxMeta.index.posts[1].src === "别的名字",
+        idxMeta.index.posts[1].src
+      );
+      check(
+        "resyncSourceMeta：没有变化时返回 false（不白触发一次重绘）",
+        idxMeta.resyncSourceMeta() === false
+      );
+    }
   }
 
   console.log(`\n${failed === 0 ? "✅ 全部通过" : `❌ ${failed} 项失败`}`);

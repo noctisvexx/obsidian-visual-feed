@@ -15,8 +15,8 @@ import { PHOTO_FEED_VIEW_TYPE, PhotoFeedView } from "./views/PhotoFeedView";
 /**
  * 视界 · Visual Feed
  *
- * 定位：只做一件事 —— 把个人记录 / 社交平台 里出现过的照片与视频，
- * 重新组织成一个 Instagram 风格的单列 Feed，顺便支持直接发布新的照片 / 视频。
+ * 定位：只做一件事 —— 把你指定的来源文件夹（手写笔记、社交平台同步归档……都行）里
+ * 出现过的照片与视频，重新组织成一个 Instagram 风格的 Feed，顺便支持直接发布新的照片 / 视频。
  *
  * 架构：
  *  Markdown → 本地索引（Post 聚合）→ Feed UI
@@ -107,6 +107,12 @@ export default class PhotoFeedPlugin extends Plugin {
     if (this.settings.openOnStartup) {
       await this.activateView();
     }
+    // 来源显示名 = 文件夹末级名（派生值，不存盘）→ 启动时把索引里可能过期的旧名字纠正过来，
+    // 纯内存重算、不读任何文件。否则改了文件夹名 / 换了路径之后，首页与筛选里会一直挂着旧名字。
+    if (this.indexer.resyncSourceMeta()) {
+      void this.indexer.save();
+      this.notifyIndexChanged("settings");
+    }
     if (this.indexer.isEmpty && this.settings.sources.some((s) => s.enabled)) {
       new Notice(`${PLUGIN_NAME}：正在建立索引（首次会稍慢）`);
       await this.indexer.buildFull();
@@ -167,6 +173,9 @@ export default class PhotoFeedPlugin extends Plugin {
       await this.indexer.buildFull();
       const s = this.indexer.stats();
       new Notice(`${PLUGIN_NAME}：重建完成，${s.posts} 条记录 / ${s.photos} 个媒体`);
+      // 手动重建是用户主动发起的：无视「正在往下看就先不打断」的礼貌策略，
+      // 直接按 settings 语义整体刷新（否则来源换了、筛选项和首屏却还是旧的，看着像没生效）。
+      this.notifyIndexChanged("settings");
     } catch (e) {
       console.error(e);
       new Notice(`${PLUGIN_NAME}：索引重建失败，详见控制台`);

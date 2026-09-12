@@ -17,7 +17,7 @@ const SWIPE_THRESHOLD = 50;
 /**
  * 全屏大图 / 视频查看器：
  *  - 左右切换（按钮 / 键盘 ← → / 触摸滑动 / 鼠标拖拽）
- *  - 显示来源 · 日期 · 当前序号 · 正文
+ *  - 显示来源 · 日期 · 当前序号 · 正文（来源那一段受「显示来源」开关控制）
  *  - 一键跳到原记录（图标按钮）
  *  - Esc / 点击背景 / 关闭按钮 退出
  * 只看原件：object-fit contain，不裁剪、不压缩；视频带原生播放器，绝不自动播放。
@@ -27,6 +27,8 @@ export class Lightbox {
   private items: LightboxItem[];
   private index: number;
   private onOpenFile: (post: FeedPost) => void;
+  /** 是否在元信息行显示来源名（与 Feed 卡片的「显示来源」开关同一个值） */
+  private showSource: boolean;
 
   private overlay: HTMLElement;
   private stageEl: HTMLElement;
@@ -46,12 +48,15 @@ export class Lightbox {
     app: App,
     items: LightboxItem[],
     startIndex: number,
-    onOpenFile: (post: FeedPost) => void
+    onOpenFile: (post: FeedPost) => void,
+    /** 是否显示来源名；跟 Feed 卡片共用一个设置，关掉时大图里也不出现来源 */
+    showSource = true
   ) {
     this.app = app;
     this.items = items;
     this.index = Math.max(0, Math.min(items.length - 1, startIndex));
     this.onOpenFile = onOpenFile;
+    this.showSource = showSource;
 
     this.overlay = document.body.createDiv({ cls: "pf-lightbox" });
     this.overlay.setAttribute("role", "dialog");
@@ -149,7 +154,8 @@ export class Lightbox {
     posts: FeedPost[],
     postId: string,
     indexInPost: number,
-    onOpenFile: (p: FeedPost) => void
+    onOpenFile: (p: FeedPost) => void,
+    showSource = true
   ): Lightbox | null {
     const items: LightboxItem[] = [];
     let start = -1;
@@ -160,7 +166,7 @@ export class Lightbox {
       });
     }
     if (start < 0) return null;
-    return new Lightbox(app, items, start, onOpenFile);
+    return new Lightbox(app, items, start, onOpenFile, showSource);
   }
 
   private keyHandler = (e: KeyboardEvent): void => {
@@ -264,9 +270,9 @@ export class Lightbox {
     this.counterEl.setText(
       this.items.length > 1 ? `${this.index + 1} / ${this.items.length}` : ""
     );
-    this.metaEl.setText(
-      `${post.src} · ${humanDate(post.date)}${post.time ? " " + post.time : ""}`
-    );
+    // 元信息行：来源名 + 日期时间。关掉「显示来源」后只剩日期时间（分隔符也一起收掉）。
+    const when = `${humanDate(post.date)}${post.time ? " " + post.time : ""}`;
+    this.metaEl.setText(this.showSource && post.src ? `${post.src} · ${when}` : when);
     const cap = photo.caption || post.caption;
     this.captionEl.setText(cap || "");
     this.captionEl.toggleClass("pf-lb-caption-empty", !cap);

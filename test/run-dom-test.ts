@@ -21,7 +21,7 @@ import { buildPostCard } from "../src/components/PostCard";
 import { Feed } from "../src/components/Feed";
 import { Lightbox } from "../src/components/Lightbox";
 import { PhotoFeedView } from "../src/views/PhotoFeedView";
-import { DEFAULT_SETTINGS, PhotoFeedSettingTab } from "../src/settings";
+import { DEFAULT_SETTINGS, normalizeSources, PhotoFeedSettingTab } from "../src/settings";
 import { PublishModal } from "../src/publish/PublishModal";
 import type { FeedPost, Photo } from "../src/types";
 import { PLUGIN_NAME } from "../src/types";
@@ -35,6 +35,22 @@ if (!VAULT_ROOT) {
   );
 }
 const app = new App(VAULT_ROOT);
+
+/** 合成视频：只进内存 overlay（真实 Vault 里不一定有视频） */
+const VIDEO_PATH = "zz 测试素材/fx-clip.mp4";
+const VIDEO_REF = "fx-clip.mp4";
+app.vault.upsertExtra(VIDEO_PATH, "");
+
+/**
+ * 设置页 / 视图测试用的来源（合成路径，与真实库结构无关）。
+ * 显示名 = 路径末级名，所以下面所有期望值都从 UI_SRC_NAMES 派生。
+ */
+const UI_SOURCES = [
+  { id: "u1", path: "notes/journal", desc: "手写记录" },
+  { id: "u2", path: "notes/memos", desc: "随手记" },
+  { id: "u3", path: "archive/social", desc: "同步归档" },
+];
+const UI_SRC_NAMES = UI_SOURCES.map((s) => s.path.split("/").pop() as string);
 
 let failed = 0;
 const check = (name: string, cond: boolean, detail = ""): void => {
@@ -53,7 +69,7 @@ check("Vault 里找到可用测试图片", realImgs.length >= 6, `${realImgs.len
 
 const makePost = (id: string, photos: Photo[], extra: Partial<FeedPost> = {}): FeedPost => ({
   id,
-  file: "notes/journal/2026/0901.md",
+  file: "notes/2026/0901.md",
   date: "2026-09-01",
   time: "12:00",
   line: 3,
@@ -61,7 +77,7 @@ const makePost = (id: string, photos: Photo[], extra: Partial<FeedPost> = {}): F
   src: "个人记录",
   srcType: "personal",
   srcDesc: "日常生活记录",
-  srcPath: "notes/journal",
+  srcPath: "notes",
   caption: "今天画了一只鸟",
   truncated: false,
   photos,
@@ -119,9 +135,26 @@ async function main(): Promise<void> {
       node.el.firstElementChild?.className ?? ""
     );
     check(
-      "来源与日期收进底部一行（弱化显示）",
-      node.el.querySelector(".pf-post-foot .pf-post-src-name")?.textContent === "个人记录" &&
-        (node.el.querySelector(".pf-post-date-full")?.textContent ?? "").includes("2026-09-01")
+      "默认不显示来源：开关关闭时连来源名都不渲染（底部只剩日期）",
+      node.el.querySelectorAll(".pf-post-src, .pf-post-src-name, .pf-post-src-desc").length === 0 &&
+        (node.el.querySelector(".pf-post-date-full")?.textContent ?? "").includes("2026-09-01"),
+      node.el.querySelector(".pf-post-foot")?.innerHTML ?? ""
+    );
+    check(
+      "打开「显示来源」后，来源名与来源说明一起回到照片下方",
+      (() => {
+        const shown = buildPostCard(
+          app as never,
+          makePost("p1b", realImgs.slice(0, 1)),
+          { ...config, showSourceDesc: true },
+          { onOpenPhoto: noop, onOpenFile: noop }
+        );
+        return (
+          shown.el.querySelector(".pf-post-src-name")?.textContent === "个人记录" &&
+          shown.el.querySelector(".pf-post-src-desc")?.textContent === "日常生活记录"
+        );
+      })(),
+      "查 .pf-post-src-name / .pf-post-src-desc"
     );
     check(
       "时间只出现一次（底部），没有重复的右上角时间",
@@ -179,7 +212,9 @@ async function main(): Promise<void> {
     const wrap = document.body.createDiv();
     const opened: number[] = [];
     const four = realImgs.slice(0, 4);
-    const node = buildPostCard(app as never, makePost("p2", four), config, {
+    // 本节要断言来源文字的样式，所以显式打开「显示来源」
+    // （默认关闭时来源整块都不渲染，见第 1 节的断言）
+    const node = buildPostCard(app as never, makePost("p2", four), { ...config, showSourceDesc: true }, {
       onOpenPhoto: (_p, i) => opened.push(i),
       onOpenFile: noop,
     });
@@ -245,7 +280,7 @@ async function main(): Promise<void> {
     );
     const posts = Array.from({ length: 6 }, (_, i) =>
       makePost(`f${i}`, realImgs.slice(i, i + 2), {
-        file: `notes/journal/2026/09${i.toString().padStart(2, "0")}.md`,
+        file: `notes/2026/09${i.toString().padStart(2, "0")}.md`,
       })
     );
 
@@ -293,7 +328,7 @@ async function main(): Promise<void> {
   {
     const posts = [
       makePost("a", realImgs.slice(0, 3), { src: "个人记录" }),
-      makePost("b", realImgs.slice(3, 4), { src: "社交平台", srcType: "socialMedia" }),
+      makePost("b", realImgs.slice(3, 4), { src: "绘画记录", srcType: "socialMedia" }),
     ];
     const lb = Lightbox.fromFeed(app as never, posts, "a", 1, noop);
     check("Lightbox 能打开", !!lb);
@@ -322,9 +357,9 @@ async function main(): Promise<void> {
     );
     next.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
     check(
-      "跨 Post 继续切换（4/4，来源变为 社交平台）",
+      "跨 Post 继续切换（4/4，来源变为绘画记录）",
       document.body.querySelector(".pf-lb-counter")?.textContent === "4 / 4" &&
-        (document.body.querySelector(".pf-lb-meta")?.textContent ?? "").includes("社交平台")
+        (document.body.querySelector(".pf-lb-meta")?.textContent ?? "").includes("绘画记录")
     );
     next.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
     check(
@@ -340,6 +375,17 @@ async function main(): Promise<void> {
 
     document.dispatchEvent(new env.window.KeyboardEvent("keydown", { key: "Escape" }));
     check("Esc 关闭并移除覆盖层", !document.body.querySelector(".pf-lightbox"));
+
+    // ── 关掉「显示来源」：大图的元信息行里也不该再有来源名 ──
+    const lbNoSrc = Lightbox.fromFeed(app as never, posts, "a", 1, noop, false);
+    check(
+      "关掉「显示来源」后，大图只剩日期时间（不再出现来源名）",
+      !!lbNoSrc &&
+        !(document.body.querySelector(".pf-lb-meta")?.textContent ?? "").includes("个人记录") &&
+        /2026/.test(document.body.querySelector(".pf-lb-meta")?.textContent ?? ""),
+      document.body.querySelector(".pf-lb-meta")?.textContent ?? ""
+    );
+    lbNoSrc?.close();
   }
 
   // ───────── 5. 轮播销毁 ─────────
@@ -358,11 +404,9 @@ async function main(): Promise<void> {
 
   // ───────── 6. 视频轮播 ─────────
   {
-    // 造一个「存在于 Vault 里」的视频文件（真实 Vault 里目前没有视频）
-    const VIDEO_PATH = "attachments/media/clip-demo.mp4";
-    app.vault.upsertExtra(VIDEO_PATH, "");
+    // 合成视频已经在模块顶部注册过，这里直接用
     const videoPhoto: Photo = {
-      ref: "clip-demo.mp4",
+      ref: VIDEO_REF,
       path: VIDEO_PATH,
       remote: false,
       caption: "",
@@ -498,9 +542,8 @@ async function main(): Promise<void> {
 
   // ───────── 7. Lightbox 视频 ─────────
   {
-    const VIDEO_PATH = "attachments/media/clip-demo.mp4";
     const videoPhoto: Photo = {
-      ref: "clip-demo.mp4",
+      ref: VIDEO_REF,
       path: VIDEO_PATH,
       remote: false,
       caption: "",
@@ -547,7 +590,11 @@ async function main(): Promise<void> {
   {
     const app4 = new App(VAULT_ROOT);
     const s4 = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) as typeof DEFAULT_SETTINGS;
-    const viewPosts = [makePost("v1", realImgs.slice(0, 2)), makePost("v2", realImgs.slice(2, 3))];
+    // 两个不同来源：用来验证「来源 chips 按真实数据动态生成」
+    const viewPosts = [
+      makePost("v1", realImgs.slice(0, 2)),
+      makePost("v2", realImgs.slice(2, 3), { src: "绘画记录" }),
+    ];
     let notified = 0;
     const pluginStub = {
       app: app4,
@@ -567,6 +614,10 @@ async function main(): Promise<void> {
       },
       offIndexChanged: () => undefined,
       notifyIndexChanged: () => undefined,
+      settingsOpened: 0,
+      openSettings() {
+        pluginStub.settingsOpened++;
+      },
     };
     const view = new PhotoFeedView({ app: app4 } as never, pluginStub as never);
     await view.onOpen();
@@ -695,6 +746,85 @@ async function main(): Promise<void> {
       (root.querySelector(".pf-filter-panel .pf-stat")?.textContent ?? "").includes("2 条")
     );
 
+    // ── 面板里直接打开插件设置（来源文件夹 / 显示项都在那儿配）──
+    check(
+      "筛选面板底部有「打开插件设置」入口（齿轮图标）",
+      root.querySelector(".pf-filter-panel .pf-panel-foot .pf-settings-btn")?.getAttribute(
+        "data-icon"
+      ) === "settings",
+      root.querySelector(".pf-settings-btn")?.getAttribute("data-icon") ?? "没有这个按钮"
+    );
+    (root.querySelector(".pf-fab-filter") as HTMLElement).dispatchEvent(
+      new env.window.MouseEvent("click", { bubbles: true })
+    );
+    const openedBefore = pluginStub.settingsOpened;
+    (root.querySelector(".pf-filter-panel .pf-settings-btn") as HTMLElement).dispatchEvent(
+      new env.window.MouseEvent("click", { bubbles: true })
+    );
+    check(
+      "点面板里的「设置」→ 收起面板并打开插件设置",
+      pluginStub.settingsOpened === openedBefore + 1 &&
+        !(root.querySelector(".pf-filter-panel") as HTMLElement).classList.contains("pf-panel-open"),
+      `openSettings 调用 ${pluginStub.settingsOpened} 次`
+    );
+
+    // ── 来源 chips：跟着数据里的来源走，不写死任何来源名 ──
+    const chipLabels = (): string[] =>
+      Array.from(root.querySelectorAll(".pf-filter-panel .pf-chip")).map(
+        (c) => (c as HTMLElement).textContent ?? ""
+      );
+    const pickChip = (label: string): void => {
+      const el = Array.from(root.querySelectorAll(".pf-filter-panel .pf-chip")).find(
+        (c) => (c as HTMLElement).textContent === label
+      ) as HTMLElement;
+      el.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
+    };
+
+    check(
+      "来源 chips 用数据里的来源名（全部 + 两个来源，没有写死的类型名）",
+      chipLabels().length === 3 &&
+        chipLabels()[0] === "全部" &&
+        chipLabels().includes("个人记录") &&
+        chipLabels().includes("绘画记录") &&
+        !chipLabels().some((l) => /^(personal|socialmedia)$/i.test(l)),
+      chipLabels().join(" / ")
+    );
+
+    pickChip("绘画记录");
+    await tick(0);
+    check(
+      "点来源 chip 只留该来源的记录",
+      root.querySelectorAll(".pf-post").length === 1,
+      `${root.querySelectorAll(".pf-post").length}`
+    );
+    check("来源筛选生效时筛选按钮带小圆点", !!root.querySelector(".pf-fab-filter .pf-fab-dot"));
+
+    pickChip("全部");
+    await tick(0);
+    check(
+      "点回「全部」恢复两条",
+      root.querySelectorAll(".pf-post").length === 2,
+      `${root.querySelectorAll(".pf-post").length}`
+    );
+
+    // 只剩一个来源时：整排隐藏，并把筛选退回「全部」
+    pickChip("绘画记录");
+    await tick(0);
+    viewPosts[0].src = "绘画记录";
+    view.render();
+    await tick(0);
+    check(
+      "只剩单一来源时来源 chips 整排隐藏（不再有「全部 / 唯一来源」这种迷惑选项）",
+      (root.querySelector(".pf-filter-panel .pf-chips") as HTMLElement).classList.contains(
+        "pf-chips-hidden"
+      ) && root.querySelectorAll(".pf-filter-panel .pf-chip").length === 0
+    );
+    check(
+      "来源消失后筛选自动退回「全部」（按钮小圆点跟着消失，不会空着不显示内容）",
+      root.querySelectorAll(".pf-post").length === 2 &&
+        !root.querySelector(".pf-fab-filter .pf-fab-dot")
+    );
+
     // 点按钮 → 展开
     (root.querySelector(".pf-fab-filter") as HTMLElement).dispatchEvent(
       new env.window.MouseEvent("click", { bubbles: true })
@@ -761,16 +891,29 @@ async function main(): Promise<void> {
   {
     const app5 = new App(VAULT_ROOT);
     const s5 = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) as typeof DEFAULT_SETTINGS;
+    // DEFAULT 不预置来源（新装就是空列表），这里塞进合成的三条来源来测设置页。
+    // 真实加载流程（main.loadSettings）一定会跑一次 normalizeSources：
+    // 显示名 = 文件夹末级名，data.json 里存的旧名字一律被丢掉。
+    s5.sources = normalizeSources(UI_SOURCES);
+    // 记录「索引侧元信息被就地同步」的调用，用来验证改说明不会触发全量重建
+    const metaCalls: string[] = [];
+    const notifyCalls: string[] = [];
     const pluginStub5 = {
       app: app5,
       settings: s5,
       indexer: {
         index: { posts: [], files: {} },
         stats: () => ({ posts: 0, photos: 0, scanned: 0, withPhotos: 0, bySource: {} }),
+        resyncSourceMeta: () => {
+          metaCalls.push("resync");
+          return true;
+        },
       },
       saveSettings: async () => undefined,
       rebuildIndex: async () => undefined,
-      notifyIndexChanged: () => undefined,
+      notifyIndexChanged: (src?: string) => {
+        notifyCalls.push(String(src));
+      },
     };
     const tab = new PhotoFeedSettingTab(app5 as never, pluginStub5 as never);
     tab.display();
@@ -792,11 +935,22 @@ async function main(): Promise<void> {
       `${el.querySelectorAll(".pf-src-row").length}`
     );
     check(
-      "每行都能改 路径 / 显示名 / 类型 / 说明",
-      el.querySelectorAll(".pf-src-path").length === 3 &&
-        el.querySelectorAll(".pf-src-name").length === 3 &&
-        el.querySelectorAll(".pf-src-type").length === 3 &&
-        el.querySelectorAll(".pf-src-desc").length === 3
+      "每行都有 路径 / 说明 两个可编辑框",
+      el.querySelectorAll("input.pf-src-path").length === 3 &&
+        el.querySelectorAll("input.pf-src-desc").length === 3
+    );
+    check(
+      "显示名不再可编辑（旧存量名字被丢弃，一律显示文件夹末级名）",
+      el.querySelectorAll(".pf-src-name").length === 3 &&
+        el.querySelectorAll("input.pf-src-name").length === 0 &&
+        [...el.querySelectorAll(".pf-src-name")].map((n) => n.textContent).join("|") ===
+          UI_SRC_NAMES.join("|"),
+      [...el.querySelectorAll(".pf-src-name")].map((n) => n.textContent).join("|")
+    );
+    check(
+      "不再有让人看不懂的「类型（Personal / 平台名）」下拉框",
+      el.querySelectorAll(".pf-src-type").length === 0,
+      `${el.querySelectorAll(".pf-src-type").length}`
     );
     check(
       "路径框预填了来源路径",
@@ -823,6 +977,11 @@ async function main(): Promise<void> {
     check(
       "发布：有「发布文件夹自动加为来源」开关",
       [...el.querySelectorAll(".setting-item-name")].some((n) => n.textContent === "发布文件夹自动加为来源")
+    );
+    check(
+      "有「显示来源」开关（管住来源名 + 说明整块，旧的「显示来源说明」文案已消失）",
+      [...el.querySelectorAll(".setting-item-name")].some((n) => n.textContent === "显示来源") &&
+        ![...el.querySelectorAll(".setting-item-name")].some((n) => n.textContent === "显示来源说明")
     );
 
     // ── 照片框比例（v1.2 新增）──
@@ -903,6 +1062,70 @@ async function main(): Promise<void> {
       new env.window.MouseEvent("click", { bubbles: true })
     );
     check("点「＋ 添加来源文件夹」会打开文件夹选择器", document.body.children.length > before);
+
+    // ── 显示名 = 文件夹末级名（派生值，不存盘）──
+    // 用户要求「选定什么文件夹，首页来源就显示什么名」，所以显示名没有「自定义」这一说：
+    // 它永远等于路径最后一段，换文件夹立刻跟随，重启后由 normalizeSources 自动纠正。
+    const retypePath = async (i: number, v: string): Promise<void> => {
+      const input = el.querySelectorAll<HTMLInputElement>("input.pf-src-path")[i];
+      input.value = v;
+      input.dispatchEvent(new env.window.Event("change", { bubbles: true }));
+      await tick(0);
+    };
+    const nameText = (i: number): string =>
+      (el.querySelectorAll(".pf-src-name")[i]?.textContent ?? "").trim();
+
+    // 源 1 → 换成另一个文件夹
+    await retypePath(1, "notes/scratch");
+    check(
+      "换文件夹后显示名跟着新文件夹走（memos → scratch）",
+      s5.sources[1].path === "notes/scratch" && s5.sources[1].name === "scratch",
+      `${s5.sources[1].path} / ${s5.sources[1].name}`
+    );
+    check("设置页那一行的标签也同步刷成新名字", nameText(1) === "scratch", nameText(1));
+
+    // 源 2 → 再换一个：旧名字一律被丢掉，不做「自定义名」保护
+    await retypePath(2, "archive/sync");
+    check(
+      "不再有自定义名保护，旧名字无条件被文件夹名覆盖（social → sync）",
+      s5.sources[2].path === "archive/sync" && s5.sources[2].name === "sync",
+      `${s5.sources[2].path} / ${s5.sources[2].name}`
+    );
+
+    // 模拟 data.json 里存着一个对不上的旧名字，重选「同一个」文件夹也要把它纠正回来
+    s5.sources[2].name = "旧名字";
+    await retypePath(2, "archive/sync");
+    check(
+      "重选同一个文件夹时，对不上的旧名字被纠正成文件夹名",
+      s5.sources[2].name === "sync",
+      s5.sources[2].name
+    );
+
+    // 换成已存在的文件夹要被拦下：路径与名字都不动
+    await retypePath(1, "notes/journal");
+    check(
+      "换成已在列表里的文件夹会被拦下，路径与显示名都不变",
+      s5.sources[1].path === "notes/scratch" && s5.sources[1].name === "scratch",
+      `${s5.sources[1].path} / ${s5.sources[1].name}`
+    );
+
+    // 改说明：只就地同步索引元信息，不触发全量重建（也不该动显示名）
+    metaCalls.length = 0;
+    notifyCalls.length = 0;
+    const descInput2 = el.querySelectorAll<HTMLInputElement>("input.pf-src-desc")[1];
+    descInput2.value = "随手写的短文";
+    descInput2.dispatchEvent(new env.window.Event("change", { bubbles: true }));
+    await tick(0);
+    check(
+      "改说明走「就地同步元信息」而不是全量重建索引",
+      metaCalls.length === 1 && notifyCalls.includes("settings"),
+      `meta=${metaCalls.length} notify=${notifyCalls.join(",")}`
+    );
+    check(
+      "改说明不会顺手改掉显示名",
+      s5.sources[1].name === "scratch" && nameText(1) === "scratch",
+      `${s5.sources[1].name} / ${nameText(1)}`
+    );
   }
 
   console.log(`\n${failed === 0 ? "✅ 全部通过" : `❌ ${failed} 项失败`}`);

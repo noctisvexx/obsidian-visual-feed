@@ -3,7 +3,11 @@
 /** 插件显示名（视图标题、设置页、Ribbon 提示统一用它） */
 export const PLUGIN_NAME = "视界 · Visual Feed";
 
-/** 来源类型：个人记录 / 社交平台 记录 */
+/**
+ * 来源类型：本地手写记录 / 社交平台同步（导入）记录。
+ * 刻意不写具体平台名 —— 同一个文件夹里的正文是靠结构识别的（见 parse.ts），
+ * 这个字段只作元信息与筛选/展示用，换任何平台都成立。
+ */
 export type SourceType = "personal" | "socialMedia";
 
 /** 媒体类型：图片 / 视频 */
@@ -42,7 +46,10 @@ export interface SourceFolder {
   id: string;
   /** Vault 内相对路径（'' 表示 Vault 根） */
   path: string;
-  /** 显示名称（Feed 里显示的来源名，如「个人记录」「绘画」） */
+  /**
+   * 显示名称（Feed 里显示的来源名）。
+   * ⚠️ 这是**派生值**：永远等于 path 的末级文件夹名，不落盘、不手改（见 settings.ts 的 normalizeSources）。
+   */
   name: string;
   /** 来源类型 */
   type: SourceType;
@@ -131,7 +138,7 @@ export interface PhotoFeedSettings {
   showCaption: boolean;
   /** 正文显示字数上限 */
   captionChars: number;
-  /** 是否显示来源说明文字 */
+  /** 是否显示来源（来源名 + 说明整块，Feed 卡片与大图共用）；关闭则哪里都不显示来源 */
   showSourceDesc: boolean;
   /** 启动时打开照片流 */
   openOnStartup: boolean;
