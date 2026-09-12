@@ -59,7 +59,8 @@
 几个刻意做对的地方：
 
 - **一个时间戳 = 一条 Post**。同一天发多条，会自动按 `HH:MM` 升序插进同一个文件，而不是各写一个文件。
-- 沿用你文件里**已经有的格式**：有 `### HH:MM` 分段就插分段，没有就用 `## Memos`（或 `## 随记` / `## 日记` / `## Journal`）下的 `- HH:MM` 列表项。
+- 分段**只看时间戳，不认固定标题**：`### HH:MM` 小标题或 `- HH:MM` 列表项都是 Post 的开头，一直管到下一条时间戳为止。`## Memos` / `## 随记` / `## 日记` / `## Journal` 这类标题只是普通标题，叫什么、有没有都不影响解析。
+- 沿用你文件里**已经有的格式**：本来是 `### HH:MM` 小标题就插小标题，本来是 `- HH:MM` 列表就插列表项；两种混在同一份文件里也会按出现顺序正常解析。
 - 文件名里的 Windows 非法字符会被清洗（冒号特别危险 —— 它会被 NTFS 当成 ADS 静默截断成 0 字节），重名自动加 `-1`，换行符保持原样。
 - 视频用 `<video controls preload="metadata" playsinline>`，**绝不自动播放**；点视频本体不会误触发 Lightbox。
 - 发布后只重新索引**刚写的那一个文件**，不会重建全库。
@@ -143,7 +144,7 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 **335** 项断言：
+两套测试，加起来 **357** 项断言：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
 - **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页动态重绘。
@@ -160,7 +161,7 @@ npm test        # 打包测试 + 跑端到端测试
 > ```
 >
 > **来源文件夹也不用配**：测试会在运行时从那个库里就地挑几个 md 最多的目录当来源
-> （并顺带识别分段风格），所以仓库里不含任何真实目录名。
+> （并顺带探测文件里用的时间戳格式），所以仓库里不含任何真实目录名。
 
 ---
 
@@ -234,7 +235,8 @@ The plugin then writes to `{target folder}/YYYY/MM/MMDD.md`, embeds media as `![
 A few things done deliberately right:
 
 - **One timestamp = one post.** Several posts on the same day are inserted into the same file in ascending `HH:MM` order, instead of each getting its own file.
-- It **follows the format your file already has**: if there is a `### HH:MM` section structure it inserts a section; otherwise a `- HH:MM` list item under `## Memos` (or `## 随记` / `## 日记` / `## Journal`).
+- Segmentation **only looks at timestamps, never at fixed headings**: a `### HH:MM` heading or a `- HH:MM` list item starts a post, and it runs until the next timestamp. Headings like `## Memos` / `## Journal` are just ordinary headings — name them whatever you like, or leave them out entirely.
+- It **follows the format your file already has**: a `### HH:MM` file gets a heading, a `- HH:MM` list file gets a list item; mixing the two in the same file still parses in file order.
 - Windows-illegal characters in filenames are sanitised (colons are especially dangerous — NTFS treats them as ADS and silently truncates the file to 0 bytes), duplicates get a `-1` suffix, and line breaks are preserved as-is.
 - Videos use `<video controls preload="metadata" playsinline>` and **never autoplay**; tapping the video itself will not accidentally trigger the lightbox.
 - After publishing, only **the one file just written** is re-indexed, never the whole vault.
@@ -278,7 +280,7 @@ After that, **creating / modifying / deleting / renaming** files inside Obsidian
 | Setting | Description |
 | --- | --- |
 | **Source folders** | The list of scanned folders; addable, editable, removable. Changing a path or the enabled state rebuilds the index; changing only the description patches it in place |
-| **Grouping** | One post per record (each timestamped record becomes its own post) / one post per file |
+| **Grouping** | One post per record (a new post at every `- HH:MM` or `### HH:MM` timestamp) / one post per file |
 | **Default layout** | Single-column feed / masonry grid. The home-view button flips it live; this is what it opens with |
 | **Grid tile size** | Small / medium / large (narrow screens step down one size so several columns still fit) |
 | **Grid unit** | One tile per photo (records spread out, more like a photo wall) / one tile per record (swipe between images inside the tile; no count badge in grid) |
@@ -299,6 +301,7 @@ After that, **creating / modifying / deleting / renaming** files inside Obsidian
 ### How it works
 
 - **Index**: scans the Markdown inside the source folders, parses every media reference (`![[...]]`, `![](...)`, HTML tags), and groups them into posts by `record` or `file`. The index is persisted in the plugin's `data.json`.
+- **Segmentation (two independent layers)**: the **media reference** decides *which media exists*; the **timestamp** decides *which post a media item belongs to*; fixed heading names take no part in the core parsing. Only a valid 24-hour `- HH:MM` / `### HH:MM` timestamp counts (`25:80` does not), and a stray "12:56" mentioned mid-sentence does not either — it has to be a timestamp structure at the start of a line. The whole file is cut into blocks in order of appearance, so list items and headings mixed together are handled in file order; a file with no timestamp at all becomes a single file-level post (so a file that is only Frontmatter, with no fixed headings, is never dropped).
 - **Incremental**: on startup each file's `mtime` + `size` is compared and only changed files are re-parsed; when nothing changed, zero files are read. Index schema changes are handled with optional fields plus fallbacks, so **upgrading the plugin never requires a full rebuild**.
 - **Never touches your notes**: apart from the explicit "publish" action writing the target file you chose, everything is read-only. Media is not copied, thumbnails are not generated, files are not moved.
 - **Media references**: uses Obsidian's native `app://local/` resource URLs to reference vault files directly; remote images (`https://`) work too.
@@ -318,7 +321,7 @@ npm test        # bundle the tests + run the end-to-end suite
 
 #### Tests
 
-Two suites, **335** assertions in total:
+Two suites, **357** assertions in total:
 
 - **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
 - **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, settings-page re-rendering.

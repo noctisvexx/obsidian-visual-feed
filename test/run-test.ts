@@ -86,10 +86,11 @@ const registerFixtures = (a: App): void => {
 /**
  * 就地发现几个来源文件夹（运行时决定，不写死）：
  *  - 候选 = 含 md 最多的若干目录；
- *  - 各读一篇（最大的那篇）判断是「### HH:MM 分段」还是「列表式记录」；
+ *  - 各读一篇（最大的那篇）判断「有没有时间戳结构」；
  *  - 两种风格各保底一个，其余按 md 数量补满 → 两条解析路径都被真实数据覆盖。
  */
-const SEG_ANY_RE = /^###\s+\d{1,2}:\d{2}\s*$|^##\s*(Journal|Memos|随记|日记)\s*$/im;
+/** 有没有 Post 起点 —— 新版解析只认时间戳，不认任何标题 */
+const SEG_ANY_RE = /^\s*[-*]\s+([01]?\d|2[0-3]):[0-5]\d|^\s*###\s+([01]?\d|2[0-3]):[0-5]\d/m;
 const PROBE_LIMIT = 10;
 
 async function discoverSources(target = 3): Promise<SourceFolder[]> {
@@ -418,6 +419,101 @@ async function main(): Promise<void> {
   check("时间戳分段切分正确（2 条）", masto.length === 2, `实际 ${masto.length}`);
   check("分段 1 无图", masto[0].time === "08:00" && masto[0].images.length === 0);
   check("分段 2 两图", masto[1].time === "09:30" && masto[1].images.length === 2);
+
+  // ───────── 5b. Post 起点只认时间戳，不认固定标题 ─────────
+  // 规则：`- HH:MM`（可带尾随文字）与 `### HH:MM` 是起点，直到下一个时间戳之前；
+  //       Memos / Journal / 随记 / 日记 这些标题不参与任何判断。
+  {
+    type Recs = ReturnType<typeof splitRecords>;
+    const T = (src: string, baseTime = ""): Recs => splitRecords(src, "2026-09-12", baseTime);
+    const ts = (src: string): string => T(src).map((r) => r.time).join(",");
+
+    // ①②③ 列表式时间戳
+    const l1 = T("- 12:56\n  今天拍了一张照片。\n");
+    check("① `- 12:56` 识别为 Post 起点", l1.length === 1 && l1[0].time === "12:56", `ts=${ts("- 12:56\n  今天拍了一张照片。\n")}`);
+    const l2 = T("- 12:56 社交平台\n  正文\n");
+    check(
+      "② `- 12:56 社交平台` 识别，尾随文字算进正文",
+      l2.length === 1 && l2[0].time === "12:56" && l2[0].text.startsWith("社交平台"),
+      JSON.stringify(l2[0]?.text)
+    );
+    const l3 = T("- 9:05 今天拍了照片\n");
+    check("③ `- 9:05 今天拍了照片` 识别并补零成 09:05", l3.length === 1 && l3[0].time === "09:05", `ts=${ts("- 9:05 今天拍了照片\n")}`);
+
+    // ④⑤ 三级标题时间戳
+    const h1 = T("### 18:53\n今天发布了一条动态。\n");
+    check("④ `### 18:53` 识别为 Post 起点", h1.length === 1 && h1[0].time === "18:53", `ts=${ts("### 18:53\n今天发布了一条动态。\n")}`);
+    const h2 = T("### 9:05\n");
+    check("⑤ `### 9:05` 识别并补零成 09:05", h2.length === 1 && h2[0].time === "09:05", `ts=${ts("### 9:05\n")}`);
+    check("⑤b 边界值 `00:00` / `23:59` 是合法时间", ts("- 00:00\n- 23:59\n") === "00:00,23:59", `ts=${ts("- 00:00\n- 23:59\n")}`);
+
+    // ⑥ 非法时间不识别
+    for (const bad of ["- 25:80", "- 24:00", "- 12:60", "### 25:00", "### 12:99"]) {
+      check(`⑥ 非法时间 \`${bad}\` 不识别`, T(`${bad}\n  正文\n`).length === 0, `ts=${ts(`${bad}\n  正文\n`)}`);
+    }
+
+    // ⑦ 正文里的时间不算 Post 起点
+    check("⑦ 正文中的「我在 12:56 拍了一张照片」不识别", T("我在 12:56 拍了一张照片。\n").length === 0);
+    check("⑦b `### 今天 18:53 拍的照片` 不识别", T("### 今天 18:53 拍的照片\n").length === 0);
+
+    // ⑧⑨⑩ 区块边界：下一个时间戳出现时前一个 Post 结束
+    const seg2 = T([`### 18:53`, `![[${FX.img1}]]`, `![[${FX.img2}]]`, ``, `### 20:10`, `![[${FX.img3}]]`, ``].join("\n"));
+    check(
+      "⑧ 同一时间戳区块里的多张媒体归为同一个 Post",
+      seg2.map((r) => r.images.length).join(",") === "2,1",
+      seg2.map((r) => r.images.length).join(",")
+    );
+    check("⑨ 下一个时间戳出现时前一个 Post 结束（媒体不串台）", seg2[0].images.length === 2 && !seg2[0].text.includes(FX.img3));
+    check("⑩ 同一个文件里可以解析出多个 Post", seg2.length === 2 && seg2.map((r) => r.time).join(",") === "18:53,20:10");
+
+    // ⑬ 两种格式混用 → 按文件里的实际出现顺序
+    const mixed2 = T(
+      [
+        `- 12:56`, `  ![[${FX.img1}]]`, ``,
+        `### 18:53`, `![[${FX.img2}]]`, ``,
+        `- 21:10`, `  ![[${FX.img3}]]`, ``,
+      ].join("\n")
+    );
+    check(
+      "⑬ 混用 `- HH:MM` 与 `### HH:MM` 时按文件顺序解析",
+      mixed2.map((r) => r.time).join(",") === "12:56,18:53,21:10" &&
+        mixed2.map((r) => r.images.length).join(",") === "1,1,1",
+      `${mixed2.map((r) => r.time).join(",")} / ${mixed2.map((r) => r.images.length).join(",")}`
+    );
+
+    // ⑪ 无时间戳 → 文件级回退
+    const fb = T(`今天的照片\n![[${FX.img1}]]\n`, "07:30");
+    check(
+      "⑪ 没有时间戳时走文件级回退（整篇一条，用文件级日期时间）",
+      fb.length === 1 && fb[0].time === "07:30" && fb[0].date === "2026-09-12" && fb[0].images.length === 1,
+      JSON.stringify({ n: fb.length, time: fb[0]?.time, date: fb[0]?.date })
+    );
+
+    // ⑫ 没有 Memos / Journal / 随记 / 日记 也照样解析
+    check(
+      "⑫a 无固定标题：`## 我的照片记录` + `### 18:53` 正常解析",
+      ts(`## 我的照片记录\n\n### 18:53\n\n今天拍的照片。\n\n![[${FX.img1}]]\n`) === "18:53"
+    );
+    check(
+      "⑫b 无固定标题：`## 任意标题` + `- 12:56` 正常解析",
+      ts(`## 任意标题\n\n- 12:56\n\n![[${FX.img1}]]\n`) === "12:56"
+    );
+    check(
+      "⑫c `## Memos` 只是普通标题，有它没它切分结果一样",
+      ts(`- 12:56\n  ![[${FX.img1}]]\n`) === ts(`## Memos\n\n- 12:56\n  ![[${FX.img1}]]\n`)
+    );
+
+    // ⑭ 含媒体但不含固定标题的文件不能被跳过（走真实的 buildPosts）
+    const kept = buildPosts(
+      app2 as never,
+      fakeFile as never,
+      [`## 随手拍`, ``, `- 12:56`, ``, `![[${FX.img1}]]`, ``].join("\n"),
+      sources[0],
+      "record",
+      220
+    );
+    check("⑭ 含媒体但没有固定标题的文件仍然产出 Post", kept.length === 1 && kept[0].photos.length === 1, `实际 ${kept.length}`);
+  }
 
   const grouped = buildPosts(
     app2 as never,

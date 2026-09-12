@@ -21,23 +21,28 @@ import {
 } from "../utils/text";
 
 /**
- * 带时间戳的分段标题：`### HH:MM`
- * 社交平台同步脚本落盘时普遍用这个格式，所以按时戳识别、不认平台名。
+ * Post 只由**时间戳结构**决定，跟标题写什么无关。
+ *
+ * 两类起点，统一按它们在文件里的出现顺序切块：
+ *   A 列表时间戳      `- 12:56` / `- 12:56 社交平台` / `- 9:05 今天拍了照片`
+ *   B 三级标题时间戳  `### 18:53` / `### 9:05`
+ *
+ * 时间必须是合法的 24 小时制（00:00–23:59），所以 `- 25:80` 不会被当成起点，
+ * 正文里的「我在 12:56 拍了一张照片」也不会。
+ *
+ * ⚠️ 这里**不认** `## Memos` / `## Journal` / `## 随记` / `## 日记` 之类的标题：
+ *    那是若干笔记模板与日记插件的写法，属于用户自己的内容，不该成为解析的前置条件。
+ *    它们就是普通标题，出现与否都不影响 Post 能否被识别、边界画在哪。
  */
-const TIME_SEG_RE = /^###\s+(\d{1,2}:\d{2})\s*$/m;
-const TIME_SEG_SPLIT = /^###\s+(\d{1,2}:\d{2})\s*$/m;
-/**
- * 带时间戳的列表段标题：`## Journal` / `## Memos` / `## 随记` / `## 日记`。
- * ⚠️ 这些字面量是**用户笔记正文里的段标题**（Journal / Memos 是几个常见日记类插件的写法），
- *    属于文件格式约定而非平台信息 —— 改动它们会让插件读不到既有笔记，别乱动。
- */
-const SEG_HEAD_RE = /^##\s*(Journal|Memos|随记|日记)\s*$/i;
-/** Knomo 月度归档日期标题：## [[2026-08-13]] */
-const KNOMO_DAY_RE = /^##\s*\[\[(\d{4}-\d{2}-\d{2})\]\]\s*$/;
-/** Memoria 日期标题：## 2026-08-14 周五 */
-const MEMORIA_DAY_RE = /^##\s*(\d{4}-\d{2}-\d{2})\s*(?:周.|星期.)?\s*$/;
-/** 带时间戳的列表项：- 08:11 内容 / - 08:29:05 内容 */
-const MEMO_ITEM_RE = /^[-*]\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*(.*)$/;
+const TS_CORE = "([01]?\\d|2[0-3]):([0-5]\\d)(?::[0-5]\\d)?";
+/** A 列表时间戳；时间戳后面的文字（如 `- 12:56 出门了` 的 `出门了`）算进该 Post 正文 */
+const LIST_TS_RE = new RegExp(`^\\s*[-*]\\s+${TS_CORE}(?:\\s+(.*))?$`);
+/** B 三级标题时间戳（`### 今天 18:53 拍的照片` 不算） */
+const HEAD_TS_RE = new RegExp(`^\\s*###\\s+${TS_CORE}\\s*$`);
+/** 日期标题（wiki 链接式）：## [[2026-08-13]] —— 只改「归属日期」，不切 Post */
+const DAY_LINK_RE = /^##\s*\[\[(\d{4}-\d{2}-\d{2})\]\]\s*$/;
+/** 日期标题（纯文本式）：## 2026-08-14 周五 */
+const DAY_PLAIN_RE = /^##\s*(\d{4}-\d{2}-\d{2})\s*(?:周.|星期.)?\s*$/;
 
 /** 解析出的一条记录（Post 候选，无图片的会被丢弃） */
 export interface ParsedRecord {
@@ -53,11 +58,14 @@ export interface ParsedRecord {
 /**
  * 把一篇 Markdown 解析成若干条「记录」。
  *
- * 一条记录 = 一个 Post。规则（**按正文结构识别，不看来源类型**）：
- *  - 有 `### HH:MM` 分段（社交平台同步落盘的常见格式）→ 每段一条
- *  - 有 `## Journal` / `## Memos` / `## [[YYYY-MM-DD]]` / `## YYYY-MM-DD 周X` 分段
- *    → 段内每行 `- HH:MM 内容` 一条
- *  - 其余情况 → 整篇算一条（正文）
+ * 一条记录 = 一个 Post。规则（**只看时间戳结构，不看标题、也不看来源类型**）：
+ *  - 遇到 `- HH:MM`（列表项）或 `### HH:MM`（三级标题）→ 从这里开始一个新 Post，
+ *    直到下一个时间戳之前为止；两种格式混用时按文件里的实际顺序切
+ *  - 第一个时间戳之前的正文（含媒体）→ 单独一条
+ *  - 整篇没有任何时间戳 → 整篇算一条（文件级回退，不因为缺标题就跳过这个文件）
+ *
+ * 职责边界：媒体发现只管「这篇里有哪些图片/视频」，时间戳只管「这些媒体属于哪条 Post」。
+ * 前者不依赖任何标题，后者只依赖时间戳。
  */
 export function parseRecords(app: App, file: TFile, bodyRaw: string): ParsedRecord[] {
   const body = normalizeBody(bodyRaw);
@@ -85,109 +93,89 @@ export function parseRecords(app: App, file: TFile, bodyRaw: string): ParsedReco
   return splitRecords(bodyText, baseDate, baseTime);
 }
 
-const countLines = (s: string): number => (s.match(/\n/g) || []).length;
-
 /** 记录切分（纯函数，便于测试） */
 export function splitRecords(bodyText: string, baseDate: string, baseTime: string): ParsedRecord[] {
-  // ── 1. 带时间戳的分段（### HH:MM）：每段一条 ──
-  if (TIME_SEG_RE.test(bodyText)) {
-    const out: ParsedRecord[] = [];
-    const re = new RegExp(TIME_SEG_SPLIT.source, "gm");
-    const marks: { time: string; start: number; bodyStart: number; line: number }[] = [];
-    let mm: RegExpExecArray | null;
-    while ((mm = re.exec(bodyText)) !== null) {
-      const nl = bodyText.indexOf("\n", mm.index);
-      marks.push({
-        time: normTime(mm[1] || ""),
-        start: mm.index,
-        bodyStart: nl < 0 ? bodyText.length : nl + 1,
-        line: countLines(bodyText.slice(0, mm.index)),
-      });
-    }
-    const head = bodyText.slice(0, marks.length ? marks[0].start : bodyText.length);
-    const headImages = extractImageRefs(head);
-    if (headImages.length) {
-      out.push({ date: baseDate, time: baseTime, line: 0, text: head, images: headImages });
-    }
-    marks.forEach((mark, i) => {
-      const end = i + 1 < marks.length ? marks[i + 1].start : bodyText.length;
-      const content = bodyText
-        .slice(mark.bodyStart, end)
-        .replace(/^-{3,}\s*$/gm, "")
-        .trim();
-      out.push({
-        date: baseDate,
-        time: mark.time,
-        line: mark.line,
-        text: content,
-        images: extractImageRefs(content),
-      });
-    });
-    return out;
+  const lines = bodyText.split("\n");
+
+  /** 一个时间戳起点 */
+  interface Mark {
+    time: string;
+    /** 起点所在行（0 基，用于「跳转到原记录位置」） */
+    line: number;
+    /** 该 Post 正文从哪一行开始（标题式就是下一行） */
+    bodyFrom: number;
+    /** 列表式里时间戳后面的文字，也算进正文（`- 12:56 出门了`） */
+    inline: string;
   }
-
-  // ── 2. 正文 + 带时间戳的列表段 ──
-  const out: ParsedRecord[] = [];
+  const marks: Mark[] = [];
+  /** 日期标题：只决定「归属日期」，不切 Post */
+  const days: { line: number; date: string }[] = [];
+  /** 第一个时间戳之前的正文 */
   const headLines: string[] = [];
-  let curDate = baseDate;
-  let sawSegment = false;
-  let itemTime = "";
-  let itemLine = 0;
-  let itemLines: string[] = [];
-  let lineNo = 0;
 
-  const flushItem = (): void => {
-    if (!itemTime) return;
-    const text = itemLines.join("\n");
-    out.push({
-      date: curDate,
-      time: itemTime,
-      line: itemLine,
-      text,
-      images: extractImageRefs(text),
-    });
-    itemTime = "";
-    itemLines = [];
+  lines.forEach((rawLine, idx) => {
+    const line = rawLine.replace(/\s+$/, "");
+
+    const dayHit = line.match(DAY_LINK_RE) || line.match(DAY_PLAIN_RE);
+    if (dayHit) {
+      days.push({ line: idx, date: dayHit[1] ?? "" });
+      return;
+    }
+
+    const headHit = line.match(HEAD_TS_RE);
+    if (headHit) {
+      marks.push({
+        time: normTime(headHit[1] ?? "", headHit[2] ?? ""),
+        line: idx,
+        bodyFrom: idx + 1,
+        inline: "",
+      });
+      return;
+    }
+
+    const listHit = line.match(LIST_TS_RE);
+    if (listHit) {
+      marks.push({
+        time: normTime(listHit[1] ?? "", listHit[2] ?? ""),
+        line: idx,
+        bodyFrom: idx + 1,
+        inline: (listHit[3] ?? "").trim(),
+      });
+      return;
+    }
+
+    // 还没遇到任何时间戳 → 归入开头正文（时间戳之后的行由下面的切片处理）
+    if (!marks.length) headLines.push(line);
+  });
+
+  /** 某一行归属的日期：取它前面最后一个日期标题，没有就用文件级日期 */
+  const dateAt = (at: number): string => {
+    let d = baseDate;
+    for (const day of days) {
+      if (day.line > at) break;
+      if (day.date) d = day.date;
+    }
+    return d;
   };
 
-  for (const rawLine of bodyText.split("\n")) {
-    const thisLine = lineNo++;
-    const line = rawLine.replace(/\s+$/, "");
-    const dayHit = line.match(KNOMO_DAY_RE) || line.match(MEMORIA_DAY_RE);
-    if (dayHit) {
-      flushItem();
-      curDate = dayHit[1];
-      sawSegment = true;
-      continue;
-    }
-    if (SEG_HEAD_RE.test(line)) {
-      flushItem();
-      sawSegment = true;
-      continue;
-    }
-    const itemHit = line.match(MEMO_ITEM_RE);
-    if (itemHit) {
-      flushItem();
-      itemTime = normTime(itemHit[1] || "");
-      itemLine = thisLine;
-      const inline = (itemHit[2] || "").trim();
-      if (inline) itemLines.push(inline);
-      sawSegment = true;
-      continue;
-    }
-    if (itemTime) {
-      if (/^[ \t]/.test(rawLine)) {
-        itemLines.push(line.trim());
-        continue;
-      }
-      if (!line.trim()) continue;
-      flushItem();
-    }
-    if (!sawSegment) headLines.push(line);
-  }
-  flushItem();
+  /** 去掉分隔线并裁掉首尾空白 */
+  const tidy = (s: string): string => s.replace(/^-{3,}\s*$/gm, "").trim();
 
-  const head = headLines.join("\n");
+  const out: ParsedRecord[] = marks.map((mark, i) => {
+    const end = i + 1 < marks.length ? marks[i + 1].line : lines.length;
+    const body = tidy(lines.slice(mark.bodyFrom, end).join("\n"));
+    const text = [mark.inline, body].filter(Boolean).join("\n");
+    return {
+      date: dateAt(mark.line),
+      time: mark.time,
+      line: mark.line,
+      text,
+      images: extractImageRefs(text),
+    };
+  });
+
+  // 第一个时间戳之前的正文：含媒体时单独算一条，用文件级日期/时间兜底
+  const head = tidy(headLines.join("\n"));
   const headImages = extractImageRefs(head);
   if (headImages.length) {
     out.unshift({ date: baseDate, time: baseTime, line: 0, text: head, images: headImages });
@@ -195,11 +183,8 @@ export function splitRecords(bodyText: string, baseDate: string, baseTime: strin
   return out;
 }
 
-const normTime = (t: string): string => {
-  const m = (t || "").match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return "";
-  return `${String(Number(m[1])).padStart(2, "0")}:${m[2]}`;
-};
+/** `9:05` → `09:05`（时分已是合法 24 小时制，由正则保证） */
+const normTime = (h: string, m: string): string => `${String(Number(h)).padStart(2, "0")}:${m}`;
 
 /**
  * 把一条媒体引用解析成 Photo。
