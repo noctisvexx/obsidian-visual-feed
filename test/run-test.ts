@@ -1010,17 +1010,22 @@ async function main(): Promise<void> {
       })(),
       JSON.stringify(normalizeSources(null))
     );
-    check(
-      "normalizeSources：旧版 \"socialMedia\" 类型自动迁移成通用的 socialMedia",
-      (() => {
-        const out = normalizeSources([
-          { path: "alpha", type: "socialMedia" },
-          { path: "beta", type: "weird" },
-        ]);
-        return out[0].type === "socialMedia" && out[1].type === "personal";
-      })(),
-      JSON.stringify(normalizeSources([{ path: "alpha", type: "socialMedia" }]).map((s) => s.type))
-    );
+      check(
+        "normalizeSources：显式的旧类型名收敛成通用 socialMedia，缺类型则算 personal",
+        (() => {
+          const out = normalizeSources([
+            { path: "alpha", type: "somePlatform" },
+            { path: "beta", type: "socialMedia" },
+            { path: "gamma" },
+          ]);
+          return (
+            out[0].type === "socialMedia" &&
+            out[1].type === "socialMedia" &&
+            out[2].type === "personal"
+          );
+        })(),
+        JSON.stringify(normalizeSources([{ path: "alpha", type: "somePlatform" }]).map((s) => s.type))
+      );
 
     // resyncSourceMeta：只改元信息时，把已索引 Post 的 src / srcDesc / srcType 就地改掉
     {

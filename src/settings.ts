@@ -71,9 +71,10 @@ export function normalizeSources(input: unknown): SourceFolder[] {
     const path = String(r.path ?? "").trim().replace(/\/+$/, "");
     if (!path || seen.has(path)) continue;
     seen.add(path);
-    // 兼容旧版本 data.json 里存的 "socialMedia"（那时类型名耦合了具体平台）→ 迁移到通用的 socialMedia
-    const type: SourceType =
-      r.type === "socialMedia" || (r.type as string) === "socialMedia" ? "socialMedia" : "personal";
+    // 兼容旧版本 data.json：早先类型名耦合了具体平台（只分「个人」与「平台」两种），
+    // 现在统一收敛到通用的 socialMedia —— 任何显式的非 personal 类型都按社交平台处理。
+    const rawType = (r.type as string | undefined) ?? "";
+    const type: SourceType = rawType && rawType !== "personal" ? "socialMedia" : "personal";
     out.push({
       id: String(r.id ?? "") || uid(),
       path,
