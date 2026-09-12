@@ -179,4 +179,4 @@ A local-only Obsidian plugin that turns the photos already scattered across your
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © 2026 noctis
