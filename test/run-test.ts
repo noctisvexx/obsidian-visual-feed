@@ -43,13 +43,19 @@ import {
 (globalThis as Record<string, unknown>).window = globalThis;
 
 /**
- * 真实 Vault 根目录。
- * 端到端测试要对着一个真实的 Obsidian 库跑，所以路径不写死：
- * 用 VISUAL_FEED_VAULT 环境变量指到你自己的库，没设时用下面的默认值。
+ * 真实 Vault 根目录 —— 不在代码里写死，由 test/build-test.mjs 打包时注入：
+ *   1. 环境变量 VISUAL_FEED_VAULT
+ *   2. test/vault.local（本地文件，已 gitignore）
  *
  *   VISUAL_FEED_VAULT="/path/to/your/vault" npm test
  */
-const VAULT_ROOT = process.env.VISUAL_FEED_VAULT || "D:/path/to/Vault";
+declare const __VAULT_ROOT__: string;
+const VAULT_ROOT = __VAULT_ROOT__;
+if (!VAULT_ROOT) {
+  throw new Error(
+    "未指定 Vault 路径：请设置环境变量 VISUAL_FEED_VAULT，或在 test/vault.local 里写入你的库路径。",
+  );
+}
 const PERSONAL = "notes/journal";
 const MEMOS = "notes/memos";
 const MASTO = "notes/social";

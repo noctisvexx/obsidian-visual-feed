@@ -34,8 +34,8 @@ export const toTimeStr = (v: unknown): string => {
 
 /**
  * 从 Vault 路径推断日期：目录里的 4 位数年份（2026 / 2026年）+ 文件名的 MMDD 或 MM-DD。
- * 例：notes/journal/2026/0812.md → 2026-08-12
- *     notes/social/2026年/09月/09-11.md → 2026-09-11
+ * 例：日记/2026/0812.md → 2026-08-12
+ *     社交归档/2026年/09月/09-11.md → 2026-09-11
  * 无法推断返回 ''。
  */
 export const dateFromPath = (path: string): string => {

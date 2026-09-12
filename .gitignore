@@ -7,6 +7,9 @@ main.js
 # 测试打包产物（由 test/build-test.mjs 生成）
 test/*.cjs
 
+# 本地 Vault 路径（端到端测试用，不该进仓库）
+test/vault.local
+
 # 编辑器 / 系统
 .DS_Store
 Thumbs.db

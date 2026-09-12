@@ -26,8 +26,14 @@ import { PublishModal } from "../src/publish/PublishModal";
 import type { FeedPost, Photo } from "../src/types";
 import { PLUGIN_NAME } from "../src/types";
 
-/** 真实 Vault 根目录：用 VISUAL_FEED_VAULT 指到你自己的库（见 run-test.ts 说明） */
-const VAULT_ROOT = process.env.VISUAL_FEED_VAULT || "D:/path/to/Vault";
+/** 真实 Vault 根目录：由 test/build-test.mjs 注入（环境变量或 test/vault.local，见 run-test.ts 说明） */
+declare const __VAULT_ROOT__: string;
+const VAULT_ROOT = __VAULT_ROOT__;
+if (!VAULT_ROOT) {
+  throw new Error(
+    "未指定 Vault 路径：请设置环境变量 VISUAL_FEED_VAULT，或在 test/vault.local 里写入你的库路径。",
+  );
+}
 const app = new App(VAULT_ROOT);
 
 let failed = 0;

@@ -32,7 +32,7 @@ export const DEFAULT_SETTINGS: PhotoFeedSettings = {
   sources: [
     {
       id: "src-personal",
-      path: "notes/journal",
+      path: "日记",
       name: "个人记录",
       type: "personal",
       desc: "日常生活记录",
@@ -40,15 +40,15 @@ export const DEFAULT_SETTINGS: PhotoFeedSettings = {
     },
     {
       id: "src-memos",
-      path: "notes/memos",
-      name: "Memos",
+      path: "随手记",
+      name: "随手记",
       type: "personal",
-      desc: "随手记",
+      desc: "短文记录",
       enabled: true,
     },
     {
       id: "src-social",
-      path: "notes/social",
+      path: "社交归档",
       name: "社交平台",
       type: "socialMedia",
       desc: "原创动态",
@@ -69,7 +69,7 @@ export const DEFAULT_SETTINGS: PhotoFeedSettings = {
   cardStyle: true,
   layoutMode: "feed",
   gridTileSize: "medium",
-  publishFolder: "notes/memos",
+  publishFolder: "随手记",
   attachmentFolder: "",
   autoAddSource: true,
 };
@@ -277,7 +277,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           cls: "pf-src-path",
           attr: {
             type: "text",
-            placeholder: "文件夹路径，如 notes/social",
+            placeholder: "文件夹路径，如 社交归档",
             spellcheck: "false",
           },
         });
@@ -435,7 +435,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
       .setDesc("发布照片 / 视频时写入的目标文件夹，不跟随 Obsidian 原生日记。");
     makeFolderRow(
       this.plugin.settings.publishFolder,
-      "如 notes/memos",
+      "如 随手记",
       async (p) => {
         if (p === this.plugin.settings.publishFolder) return;
         this.plugin.settings.publishFolder = p;
