@@ -4,7 +4,7 @@ import { Lightbox } from "../components/Lightbox";
 import { openPostSource } from "../components/PostCard";
 import { PublishModal } from "../publish/PublishModal";
 import type PhotoFeedPlugin from "../main";
-import type { FeedPost, FeedLayout, GridTileSize, SourceType } from "../types";
+import type { FeedPost, FeedLayout, GridTileSize, GridUnit, SourceType } from "../types";
 import type { FrameRatioConfig } from "../utils/ratio";
 
 export const PHOTO_FEED_VIEW_TYPE = "photo-feed";
@@ -302,6 +302,7 @@ export class PhotoFeedView extends ItemView {
     ratio: FrameRatioConfig;
     layout: FeedLayout;
     tileSize: GridTileSize;
+    gridUnit: GridUnit;
   } {
     const s = this.plugin.settings;
     return {
@@ -312,6 +313,7 @@ export class PhotoFeedView extends ItemView {
       cardStyle: s.cardStyle,
       layout: s.layoutMode,
       tileSize: s.gridTileSize,
+      gridUnit: s.gridUnit,
       ratio: {
         mode: s.mediaRatioMode,
         min: s.mediaRatioMin,

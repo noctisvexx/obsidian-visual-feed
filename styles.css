@@ -1222,6 +1222,32 @@
   padding: 1px 7px;
 }
 
+/* 「每张照片一格」时多图记录的叠影标记：
+   记录被摊平后，靠这个小方块把「这几张是一拨的」说出来（不占地方、不抢注意力） */
+.pf-feed-inner.pf-grid .pf-tile-multi {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* 后面那一层的方框：往左下错开一点，叠影感就有了 */
+.pf-feed-inner.pf-grid .pf-tile-multi::after {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  transform: translate(-3px, 3px);
+  border-radius: 3px;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+}
+
 /* 哨兵和空状态都要横跨整行，否则会被当成一个瓦片占掉一格 */
 .pf-feed-inner.pf-grid .pf-sentinel,
 .pf-feed-inner.pf-grid .pf-empty {

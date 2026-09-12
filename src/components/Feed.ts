@@ -1,6 +1,6 @@
 import { App } from "obsidian";
-import type { FeedLayout, FeedPost, GridTileSize } from "../types";
-import { buildPostCard, type PostCardConfig } from "./PostCard";
+import type { FeedLayout, FeedPost, GridTileSize, GridUnit } from "../types";
+import { buildPostCard, buildPhotoTile, type PostCardConfig } from "./PostCard";
 import type { Carousel } from "./Carousel";
 
 /** 取当前运行环境的 IntersectionObserver */
@@ -20,14 +20,24 @@ export interface FeedConfig extends PostCardConfig {
   layout?: FeedLayout;
   /** grid 模式的瓦片尺寸档位 */
   tileSize?: GridTileSize;
+  /** grid 模式里一格代表什么（缺省 photo：每张照片一格） */
+  gridUnit?: GridUnit;
 }
 
 const TILE_SIZES: GridTileSize[] = ["small", "medium", "large"];
 
+/** 一格要渲染的东西：photo 模式下同一条记录会摊成多格 */
+interface TileUnit {
+  post: FeedPost;
+  /** 该格展示的照片下标；-1 表示整条记录一格（走 Post 卡片） */
+  photoIndex: number;
+}
+
 /**
  * Feed 渲染器（两种布局共用同一套分批渲染）：
  *  - 单列 Instagram 风格 / 多列网格瀑布流，由容器类切换，CSS 负责排版
- *  - 分批渲染：每批 pageSize 条，滚动到哨兵时再追加，首屏不注入几百个 DOM
+ *  - 网格布局两档：一格一条记录 / 一格一张照片（后者先把记录摊平成格子再分批）
+ *  - 分批渲染：每批 pageSize 格，滚动到哨兵时再追加，首屏不注入几百个 DOM
  *  - 每批渲染后释放 DOM 引用，滚动时由浏览器回收
  *  - 正在浏览时索引变化不打断，由视图层决定是否提示刷新
  */
@@ -38,6 +48,9 @@ export class Feed {
   private config: FeedConfig;
 
   private posts: FeedPost[] = [];
+  /** 摊平后的待渲染格子（photo 模式下与 Post 不是一一对应） */
+  private units: TileUnit[] = [];
+  private unitsDirty = true;
   private rendered = 0;
   private sentinel: HTMLElement | null = null;
   private emptyEl: HTMLElement;
@@ -65,6 +78,7 @@ export class Feed {
 
   setConfig(config: FeedConfig): void {
     this.config = config;
+    this.unitsDirty = true;
     this.syncLayoutClass();
   }
 
@@ -72,6 +86,7 @@ export class Feed {
    * 把布局落到容器类上，CSS 负责真正的排版：
    *  - pf-grid          → 多列网格（瀑布流式铺满）
    *  - pf-tiles-<档位>  → 瓦片固定尺寸（由 --pf-tile 决定列宽）
+   *  - pf-grid-photos   → 一格一张照片（记录被摊开，多图格带叠影标记）
    * 抽成类而不是内联样式，切换布局时不用重建 DOM 之外的任何东西。
    */
   private syncLayoutClass(): void {
@@ -82,20 +97,43 @@ export class Feed {
     for (const s of TILE_SIZES) {
       this.container.toggleClass(`pf-tiles-${s}`, s === size);
     }
+    this.container.toggleClass("pf-grid-photos", isGrid && this.isExploded());
+  }
+
+  /** 网格「每张照片一格」：记录摊平，多图不会再挤在同一个格子里 */
+  private isExploded(): boolean {
+    return (this.config.layout ?? "feed") === "grid" && (this.config.gridUnit ?? "photo") === "photo";
+  }
+
+  /** 帖子 → 格子。只在数据 / 布局变化后重算一次（摊平结果有缓存） */
+  private getUnits(): TileUnit[] {
+    if (!this.unitsDirty) return this.units;
+    const explode = this.isExploded();
+    const out: TileUnit[] = [];
+    for (const post of this.posts) {
+      if (explode) {
+        for (let k = 0; k < post.photos.length; k++) out.push({ post, photoIndex: k });
+      } else {
+        out.push({ post, photoIndex: -1 });
+      }
+    }
+    this.units = out;
+    this.unitsDirty = false;
+    return out;
   }
 
   hasContent(): boolean {
     return this.rendered > 0;
   }
 
-  /** 已渲染条数（用于刷新时保持滚动位置） */
+  /** 已渲染格数（用于刷新时保持滚动位置） */
   get renderedCount(): number {
     return this.rendered;
   }
 
-  /** 至少渲染 count 条（同步补齐，用于刷新后恢复滚动位置） */
+  /** 至少渲染 count 格（同步补齐，用于刷新后恢复滚动位置） */
   ensureRendered(count: number): void {
-    const target = Math.min(count, this.posts.length);
+    const target = Math.min(count, this.getUnits().length);
     let guard = 0;
     while (this.rendered < target && guard++ < 500) this.appendBatch();
   }
@@ -103,8 +141,9 @@ export class Feed {
   /** 数据变更 → 重新分批渲染 */
   render(posts: FeedPost[]): void {
     this.posts = posts;
+    this.unitsDirty = true;
     this.clear();
-    if (!posts.length) {
+    if (!this.getUnits().length) {
       this.emptyEl.show();
       return;
     }
@@ -127,20 +166,25 @@ export class Feed {
 
   private appendBatch(): void {
     const { pageSize } = this.config;
+    const units = this.getUnits();
     // 无 IO 的环境一次性渲染完，避免逐批递归
-    const step = this.batchEnabled ? pageSize : Math.max(1, this.posts.length);
-    const end = Math.min(this.rendered + step, this.posts.length);
+    const step = this.batchEnabled ? pageSize : Math.max(1, units.length);
+    const end = Math.min(this.rendered + step, units.length);
     const frag = document.createDocumentFragment();
     // 网格布局下卡片退化成纯照片瓦片（不建正文 / 底部信息条）
-    const cardConfig: FeedConfig = {
-      ...this.config,
-      tile: (this.config.layout ?? "feed") === "grid",
+    const isGrid = (this.config.layout ?? "feed") === "grid";
+    const cardConfig: FeedConfig = { ...this.config, tile: isGrid };
+    const cb: FeedCallbacks = {
+      onOpenPhoto: this.cb.onOpenPhoto,
+      onOpenFile: this.cb.onOpenFile,
     };
     for (let i = this.rendered; i < end; i++) {
-      const node = buildPostCard(this.app, this.posts[i], cardConfig, {
-        onOpenPhoto: this.cb.onOpenPhoto,
-        onOpenFile: this.cb.onOpenFile,
-      });
+      const unit = units[i];
+      // 网格 + 每张照片一格：这一格只放一张照片；其余情况整条记录一张卡片
+      const node =
+        isGrid && unit.photoIndex >= 0
+          ? buildPhotoTile(this.app, unit.post, unit.photoIndex, cardConfig, cb)
+          : buildPostCard(this.app, unit.post, cardConfig, cb);
       frag.appendChild(node.el);
       this.carousels.push(node.carousel);
     }
@@ -152,7 +196,7 @@ export class Feed {
     }
     this.rendered = end;
 
-    if (this.rendered < this.posts.length) {
+    if (this.rendered < units.length) {
       this.ensureSentinel();
       this.observeSentinel();
     } else if (anchor) {

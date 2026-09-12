@@ -25,7 +25,7 @@ import {
   uniqueName,
   type PublishFileLike,
 } from "../src/publish/publisher";
-import { DEFAULT_SETTINGS, normalizeRatioSettings } from "../src/settings";
+import { DEFAULT_SETTINGS, normalizeLayoutSettings, normalizeRatioSettings } from "../src/settings";
 import { isMediaExt, isVideoExt, kindOf, type PhotoFeedSettings } from "../src/types";
 import {
   DEFAULT_FRAME_RATIO,
@@ -736,6 +736,31 @@ async function main(): Promise<void> {
     );
   }
 
+  // ───────── 9.5 布局设置兜底（布局 / 瓦片尺寸 / 一格代表什么）─────────
+  {
+    const broken = {
+      ...DEFAULT_SETTINGS,
+      layoutMode: "瀑布" as never,
+      gridTileSize: "xxl" as never,
+      gridUnit: "tile" as never,
+    };
+    normalizeLayoutSettings(broken);
+    check(
+      "布局枚举兜底：非法布局 / 瓦片尺寸 / 一格单位全部回退默认",
+      broken.layoutMode === "feed" &&
+        broken.gridTileSize === "medium" &&
+        broken.gridUnit === "photo",
+      `${broken.layoutMode} ${broken.gridTileSize} ${broken.gridUnit}`
+    );
+    check("默认网格一格 = 每张照片一格（记录摊开）", DEFAULT_SETTINGS.gridUnit === "photo");
+
+    // 真实升级路径：v1.5.0 的 data.json 里没有 gridUnit，加载后必须补成默认值
+    const legacyLayout = { ...DEFAULT_SETTINGS } as Record<string, unknown>;
+    delete legacyLayout.gridUnit;
+    normalizeLayoutSettings(legacyLayout as never);
+    check("老版本设置缺 gridUnit 时补成默认", legacyLayout.gridUnit === "photo");
+  }
+
   // ───────── 10. 样式回归（纯 CSS，jsdom 量不到布局，只能查规则在不在）─────────
   {
     // 测试一律从工程根目录跑，所以直接按相对路径读
@@ -816,6 +841,12 @@ async function main(): Promise<void> {
     check(
       "网格里的哨兵/空状态横跨整行（不会被当成一个瓦片占格）",
       /\.pf-feed-inner\.pf-grid\s+\.pf-sentinel,[\s\S]{0,80}grid-column:\s*1\s*\/\s*-1/.test(css)
+    );
+    check(
+      "「每张照片一格」的叠影标记有样式（叠在瓦片右上角、不吃点击）",
+      /\.pf-feed-inner\.pf-grid\s+\.pf-tile-multi\s*\{[^}]*position:\s*absolute/.test(css) &&
+        /\.pf-feed-inner\.pf-grid\s+\.pf-tile-multi\s*\{[^}]*pointer-events:\s*none/.test(css) &&
+        /\.pf-tile-multi::after\s*\{[^}]*translate\(-3px,\s*3px\)/.test(css)
     );
     check(
       "窄屏下瓦片整体缩一档（手机能排下多列）",

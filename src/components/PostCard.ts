@@ -103,6 +103,47 @@ export function buildPostCard(
 const firstPhotoCaption = (photos: Photo[]): string =>
   photos.find((p) => p.caption)?.caption ?? "";
 
+/**
+ * 网格瀑布流「每张照片一格」：一条记录里的照片全部摊开，各自单独成格。
+ *
+ * 仍然复用 Post 卡片的媒体区（轮播的懒加载、坏文件兜底、视频播放器都在里面），
+ * 只是每格只喂一张照片，所以不会出现张数角标和左右箭头。
+ * 点击 → Lightbox 依然从「这条记录的这张照片」进入，往后翻还能看到同一条记录的其它照片，
+ * 也就是说摊开只是打散了排版，多图记录的浏览体验没有丢。
+ *
+ * 多图记录的每一格右上角会留一个小叠影标记：摊平之后仍能一眼看出这几张是一拨的。
+ */
+export function buildPhotoTile(
+  app: App,
+  post: FeedPost,
+  photoIndex: number,
+  config: PostCardConfig,
+  cb: PostCardCallbacks
+): PostCardNode {
+  const card = createEl("article", { cls: "pf-post pf-post-tile" });
+  if (!config.cardStyle) card.addClass("pf-post-flat");
+
+  // 索引越界时退回第一张，至少不会渲染出一个空格子
+  const index = post.photos[photoIndex] ? photoIndex : 0;
+  const photo = post.photos[index];
+
+  const mediaWrap = card.createDiv({ cls: "pf-media-wrap" });
+  mediaWrap.style.setProperty("--pf-max-h", String(config.imageMaxHeight));
+  const carousel = new Carousel(mediaWrap, {
+    app,
+    photos: [photo],
+    ratio: config.ratio,
+    onOpen: () => cb.onOpenPhoto(post, index),
+  });
+
+  if (post.photos.length > 1) {
+    const badge = mediaWrap.createDiv({ cls: "pf-tile-multi" });
+    badge.setAttribute("title", `该记录共 ${post.photos.length} 张`);
+  }
+
+  return { el: card, carousel };
+}
+
 /** 打开原记录：优先跳到记录所在行 */
 export async function openPostSource(app: App, post: FeedPost): Promise<void> {
   const file = app.vault.getAbstractFileByPath(post.file);

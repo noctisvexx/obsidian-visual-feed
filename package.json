@@ -1,6 +1,6 @@
 {
   "name": "obsidian-visual-feed",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Visual Feed (视界) — 把散落在笔记里的照片、视频重新组织成 Instagram 风格的照片流（单列 Feed / 网格瀑布流）。纯本地。",
   "main": "main.js",
   "scripts": {

@@ -1,7 +1,7 @@
 {
   "id": "visual-feed",
   "name": "Visual Feed",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "minAppVersion": "1.5.0",
   "description": "Turn the photos and videos scattered across your notes into an Instagram-style feed: single-column posts or a masonry grid, carousels, a full-screen lightbox, and a publish flow. Local-only; never copies files or edits your notes.",
   "author": "noctis",

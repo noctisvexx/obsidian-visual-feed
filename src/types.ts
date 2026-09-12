@@ -28,6 +28,14 @@ export type FeedLayout = "feed" | "grid";
 /** 网格模式下的瓦片尺寸档位（固定展示尺寸，只在这三档里选） */
 export type GridTileSize = "small" | "medium" | "large";
 
+/**
+ * 网格瀑布流里「一格」代表什么：
+ *  - post ：一条记录一格（多图记录在格子里左右滑，角落有 1/N 张数角标）
+ *  - photo：把记录摊开，每张照片各占一格（更像照片墙；
+ *           多图记录的每一格右上角留一个小叠影标记，仍能看出这几张是一拨的）
+ */
+export type GridUnit = "post" | "photo";
+
 /** 用户配置的来源文件夹（设置页可增删改） */
 export interface SourceFolder {
   /** 稳定 id（重命名/移动路径后仍可追踪来源） */
@@ -133,6 +141,8 @@ export interface PhotoFeedSettings {
   layoutMode: FeedLayout;
   /** 网格模式的瓦片尺寸档位 */
   gridTileSize: GridTileSize;
+  /** 网格模式里一格代表一条记录还是一张照片 */
+  gridUnit: GridUnit;
   /** 发布目标文件夹（自己选定，不跟随 Obsidian 原生日记） */
   publishFolder: string;
   /** 发布时的附件存放文件夹；留空 = 跟随 Obsidian 的附件文件夹设置 */

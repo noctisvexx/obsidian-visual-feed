@@ -11,6 +11,7 @@ import type PhotoFeedPlugin from "./main";
 import type {
   FeedLayout,
   GridTileSize,
+  GridUnit,
   MediaRatioMode,
   PhotoFeedSettings,
   SourceFolder,
@@ -69,6 +70,7 @@ export const DEFAULT_SETTINGS: PhotoFeedSettings = {
   cardStyle: true,
   layoutMode: "feed",
   gridTileSize: "medium",
+  gridUnit: "photo",
   publishFolder: "随手记",
   attachmentFolder: "",
   autoAddSource: true,
@@ -151,6 +153,9 @@ export function normalizeLayoutSettings(s: PhotoFeedSettings): void {
     s.gridTileSize !== "large"
   ) {
     s.gridTileSize = DEFAULT_SETTINGS.gridTileSize;
+  }
+  if (s.gridUnit !== "post" && s.gridUnit !== "photo") {
+    s.gridUnit = DEFAULT_SETTINGS.gridUnit;
   }
 }
 
@@ -504,6 +509,24 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           .onChange(async (v) => {
             const size = (v === "small" || v === "large" ? v : "medium") as GridTileSize;
             this.plugin.settings.gridTileSize = size;
+            await this.plugin.saveSettings();
+            this.plugin.notifyIndexChanged("settings");
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("瀑布流一格")
+      .setDesc(
+        "每张照片一格：一条记录里的照片全部摊开，各占一格（照片墙的感觉，滚动时看得更多）；" +
+          "每条记录一格：一条记录只占一格，多图在格子里左右滑。"
+      )
+      .addDropdown((dd) =>
+        dd
+          .addOption("photo", "每张照片一格（摊开）")
+          .addOption("post", "每条记录一格")
+          .setValue(this.plugin.settings.gridUnit)
+          .onChange(async (v) => {
+            this.plugin.settings.gridUnit = (v === "post" ? "post" : "photo") as GridUnit;
             await this.plugin.saveSettings();
             this.plugin.notifyIndexChanged("settings");
           })

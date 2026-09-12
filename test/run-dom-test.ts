@@ -615,18 +615,57 @@ async function main(): Promise<void> {
       feedInner.className
     );
     check(
-      "网格模式下卡片退化成纯照片瓦片（没有正文与底部信息条）",
-      root.querySelectorAll(".pf-post-tile").length === 2 &&
-        root.querySelectorAll(".pf-post-tile .pf-post-foot").length === 0 &&
-        root.querySelectorAll(".pf-post-tile .pf-caption").length === 0
-    );
-    check(
       "布局选择被记住（写进了设置）",
       (pluginStub.saved as number) > 0 && pluginStub.settings.layoutMode === "grid",
       `saved=${pluginStub.saved} mode=${pluginStub.settings.layoutMode}`
     );
-    layoutFab.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
+    check(
+      "网格模式下卡片退化成纯照片瓦片（没有正文与底部信息条）",
+      root.querySelectorAll(".pf-post-tile .pf-post-foot").length === 0 &&
+        root.querySelectorAll(".pf-post-tile .pf-caption").length === 0
+    );
+
+    // ── 摊平：网格默认「每张照片一格」──
+    check(
+      "网格默认把记录摊开：一条两图的记录占两格（2 条 / 3 张 → 3 格）",
+      root.querySelectorAll(".pf-post-tile").length === 3 &&
+        feedInner.classList.contains("pf-grid-photos") === true,
+      `tiles=${root.querySelectorAll(".pf-post-tile").length} ${feedInner.className}`
+    );
+    check(
+      "摊开后每格只有一张照片：没有张数角标，多图记录带叠影标记",
+      root.querySelectorAll(".pf-post-tile .pf-counter").length === 0 &&
+        root.querySelectorAll(".pf-post-tile .pf-tile-multi").length === 2
+    );
+    // 点第 2 格（= 两图记录的第 2 张）：Lightbox 从这张进，还能继续翻这条记录的其它照片
+    (root.querySelectorAll(".pf-post-tile .pf-slide")[1] as HTMLElement).dispatchEvent(
+      new env.window.MouseEvent("click", { bubbles: true })
+    );
+    check(
+      "点摊开后的某一格 → Lightbox 落在该记录的这一张上（不是从第一张重来）",
+      document.body.querySelector(".pf-lb-counter")?.textContent === "2 / 3",
+      document.body.querySelector(".pf-lb-counter")?.textContent ?? "没打开"
+    );
+    document.dispatchEvent(new env.window.KeyboardEvent("keydown", { key: "Escape" }));
+
+    // ── 切回「每条记录一格」──
+    pluginStub.settings.gridUnit = "post";
+    layoutFab.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true })); // → 单列
     await tick(0);
+    layoutFab.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true })); // → 网格
+    await tick(0);
+    check(
+      "设置成「每条记录一格」后，两图的记录回到一格（3 张 → 2 格 + 张数角标）",
+      root.querySelectorAll(".pf-post-tile").length === 2 &&
+        feedInner.classList.contains("pf-grid-photos") === false &&
+        root.querySelectorAll(".pf-post-tile .pf-tile-multi").length === 0 &&
+        root.querySelectorAll(".pf-post-tile .pf-counter").length === 1,
+      `tiles=${root.querySelectorAll(".pf-post-tile").length}`
+    );
+    pluginStub.settings.gridUnit = "photo";
+    layoutFab.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true })); // → 单列
+    await tick(0);
+
     check(
       "再点一下切回单列",
       feedInner.classList.contains("pf-grid") === false &&
@@ -634,7 +673,7 @@ async function main(): Promise<void> {
         pluginStub.settings.layoutMode === "feed"
     );
     check(
-      "切回单列后正文与来源又回来了",
+      "切回单列后正文与来源又回来了（单列永远是整条记录一张卡片）",
       root.querySelectorAll(".pf-post-foot").length === 2 &&
         root.querySelectorAll(".pf-post-tile").length === 0
     );
