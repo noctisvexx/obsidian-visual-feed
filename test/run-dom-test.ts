@@ -633,9 +633,9 @@ async function main(): Promise<void> {
       `tiles=${root.querySelectorAll(".pf-post-tile").length} ${feedInner.className}`
     );
     check(
-      "摊开后每格只有一张照片：没有张数角标，多图记录带叠影标记",
+      "瀑布流只要照片：格子上没有任何覆盖物（无张数角标、无叠影标记）",
       root.querySelectorAll(".pf-post-tile .pf-counter").length === 0 &&
-        root.querySelectorAll(".pf-post-tile .pf-tile-multi").length === 2
+        root.querySelectorAll(".pf-post-tile .pf-tile-multi").length === 0
     );
     // 点第 2 格（= 两图记录的第 2 张）：Lightbox 从这张进，还能继续翻这条记录的其它照片
     (root.querySelectorAll(".pf-post-tile .pf-slide")[1] as HTMLElement).dispatchEvent(
@@ -655,11 +655,10 @@ async function main(): Promise<void> {
     layoutFab.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true })); // → 网格
     await tick(0);
     check(
-      "设置成「每条记录一格」后，两图的记录回到一格（3 张 → 2 格 + 张数角标）",
+      "设置成「每条记录一格」后，两图的记录回到一格（3 张 → 2 格）",
       root.querySelectorAll(".pf-post-tile").length === 2 &&
         feedInner.classList.contains("pf-grid-photos") === false &&
-        root.querySelectorAll(".pf-post-tile .pf-tile-multi").length === 0 &&
-        root.querySelectorAll(".pf-post-tile .pf-counter").length === 1,
+        root.querySelectorAll(".pf-post-tile .pf-tile-multi").length === 0,
       `tiles=${root.querySelectorAll(".pf-post-tile").length}`
     );
     pluginStub.settings.gridUnit = "photo";

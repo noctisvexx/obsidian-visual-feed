@@ -111,7 +111,7 @@ const firstPhotoCaption = (photos: Photo[]): string =>
  * 点击 → Lightbox 依然从「这条记录的这张照片」进入，往后翻还能看到同一条记录的其它照片，
  * 也就是说摊开只是打散了排版，多图记录的浏览体验没有丢。
  *
- * 多图记录的每一格右上角会留一个小叠影标记：摊平之后仍能一眼看出这几张是一拨的。
+ * ⚠️ 这一格上不允许加任何覆盖物（张数角标、叠影标记、图标……）：瀑布流只要照片本身。
  */
 export function buildPhotoTile(
   app: App,
@@ -135,11 +135,6 @@ export function buildPhotoTile(
     ratio: config.ratio,
     onOpen: () => cb.onOpenPhoto(post, index),
   });
-
-  if (post.photos.length > 1) {
-    const badge = mediaWrap.createDiv({ cls: "pf-tile-multi" });
-    badge.setAttribute("title", `该记录共 ${post.photos.length} 张`);
-  }
 
   return { el: card, carousel };
 }

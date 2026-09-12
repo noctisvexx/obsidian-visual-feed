@@ -86,7 +86,7 @@ export class Feed {
    * 把布局落到容器类上，CSS 负责真正的排版：
    *  - pf-grid          → 多列网格（瀑布流式铺满）
    *  - pf-tiles-<档位>  → 瓦片固定尺寸（由 --pf-tile 决定列宽）
-   *  - pf-grid-photos   → 一格一张照片（记录被摊开，多图格带叠影标记）
+   *  - pf-grid-photos   → 一格一张照片（记录被摊开）
    * 抽成类而不是内联样式，切换布局时不用重建 DOM 之外的任何东西。
    */
   private syncLayoutClass(): void {

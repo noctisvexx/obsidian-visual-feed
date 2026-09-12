@@ -843,10 +843,9 @@ async function main(): Promise<void> {
       /\.pf-feed-inner\.pf-grid\s+\.pf-sentinel,[\s\S]{0,80}grid-column:\s*1\s*\/\s*-1/.test(css)
     );
     check(
-      "「每张照片一格」的叠影标记有样式（叠在瓦片右上角、不吃点击）",
-      /\.pf-feed-inner\.pf-grid\s+\.pf-tile-multi\s*\{[^}]*position:\s*absolute/.test(css) &&
-        /\.pf-feed-inner\.pf-grid\s+\.pf-tile-multi\s*\{[^}]*pointer-events:\s*none/.test(css) &&
-        /\.pf-tile-multi::after\s*\{[^}]*translate\(-3px,\s*3px\)/.test(css)
+      "瀑布流只要照片：网格里张数角标被藏掉，照片上不叠任何标记",
+      /\.pf-feed-inner\.pf-grid\s+\.pf-counter\s*\{[^}]*display:\s*none/.test(css) &&
+        !/pf-tile-multi/.test(css)
     );
     check(
       "窄屏下瓦片整体缩一档（手机能排下多列）",
