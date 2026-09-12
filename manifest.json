@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-photo-feed",
+  "name": "视界 · Visual Feed",
+  "version": "1.4.0",
+  "minAppVersion": "1.5.0",
+  "description": "把个人记录与 社交平台 里的照片、视频重新组织成 Instagram 风格的单列 Feed：多图轮播、原图浏览、照片框比例可调、可发布新照片与视频，纯本地，不复制原文件、不改动原笔记。",
+  "author": "noctis",
+  "isDesktopOnly": false
+}

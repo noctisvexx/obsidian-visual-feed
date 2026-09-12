@@ -1,0 +1,18 @@
+# 依赖
+node_modules/
+
+# 构建产物（由 npm run build 生成，随 GitHub Release 分发，不进仓库）
+main.js
+
+# 测试打包产物（由 test/build-test.mjs 生成）
+test/*.cjs
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Obsidian 插件运行期数据（索引缓存等，不含在这里，防手滑）
+data.json

@@ -1,0 +1,1370 @@
+/* ============================================================
+   视界 · Visual Feed — 样式
+   类名统一 pf- 前缀；颜色全部跟随 Obsidian 主题变量，
+   深色 / 浅色模式自动适配
+   ============================================================ */
+
+/* ── 视图容器 ── */
+.pf-view-content {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.pf-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+  /*
+   * 两个浮动按钮距视图底部的距离。移动端会被原生底栏（.mobile-navbar 悬浮条，
+   * 约 52px）和键盘工具栏（.mobile-toolbar，高度见 --mobile-toolbar-height）压住，
+   * 所以这里取两者中更高的一个再往上让一点，面板和滚动留白也复用这个变量。
+   * ⚠️ 必须用 env(safe-area-inset-bottom) 而不是 var(--safe-area-inset-bottom)：
+   * 键盘弹起时 Obsidian 会把后者写成键盘高度（300px+），按钮会被顶到屏幕中间。
+   */
+  --pf-fab-bottom: 18px;
+}
+
+/* ── 滚动区 + 单列 Feed ── */
+.pf-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.pf-feed-inner {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 14px 16px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+/* ── Post 卡片 ── */
+.pf-post {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.pf-post-flat {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.pf-post-flat .pf-media {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* ── 照片区（比例盒子 + 轮播轨道）── */
+.pf-media-wrap {
+  position: relative;
+}
+
+.pf-media {
+  position: relative;
+  width: 100%;
+  /*
+   * 照片框比例：--pf-ratio 是纯数字（宽 ÷ 高），由 Carousel 按设置策略算出。
+   * max-width 用「高度上限 × 比例」反推：这样框永远不会撞到高度上限，
+   * 也就不会出现「高度被截断 + contain」导致的两侧留白。
+   */
+  aspect-ratio: var(--pf-ratio, 0.8);
+  max-width: calc(var(--pf-max-h, 78) * 1vh * var(--pf-ratio, 0.8));
+  max-height: calc(var(--pf-max-h, 78) * 1vh);
+  margin-left: auto;
+  margin-right: auto;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+
+/* 限制范围 / 统一比例：把超出框的部分裁掉，照片填满整框 */
+.pf-media.pf-cover .pf-img,
+.pf-media.pf-cover .pf-video {
+  object-fit: cover;
+}
+
+.pf-track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+.pf-track::-webkit-scrollbar {
+  display: none;
+}
+
+.pf-track.pf-dragging {
+  scroll-snap-type: none;
+  cursor: grabbing;
+}
+
+.pf-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+}
+
+.pf-slide-video {
+  cursor: default;
+}
+
+.pf-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.pf-slide.pf-loaded .pf-img {
+  opacity: 1;
+}
+
+/* ── 视频 ── */
+.pf-video {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+  -webkit-user-drag: none;
+}
+
+.pf-video-expand {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 4;
+  padding: 0;
+  backdrop-filter: blur(4px);
+}
+
+.pf-video-expand:hover {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.pf-video-expand .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.pf-video-badge {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 11px;
+  font-family: var(--font-interface);
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.pf-video-badge .svg-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.pf-slide-broken {
+  cursor: default;
+}
+
+.pf-broken {
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+/* 张数角标 */
+.pf-counter {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 9px;
+  border-radius: 999px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  z-index: 4;
+}
+
+/* 左右按钮（桌面） */
+.pf-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  padding: 0 0 2px;
+  backdrop-filter: blur(4px);
+  z-index: 3;
+}
+
+.pf-arrow-prev {
+  left: 10px;
+}
+
+.pf-arrow-next {
+  right: 10px;
+}
+
+.pf-media:hover .pf-arrow {
+  opacity: 1;
+}
+
+.pf-arrow-off {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+/* ── 正文 / 底部信息 ── */
+.pf-post-body {
+  padding: 12px 14px 0;
+}
+
+.pf-caption {
+  font-size: 14px;
+  line-height: 1.62;
+  color: var(--text-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 底部：来源 · 日期 · 打开原记录 —— 刻意弱化，照片才是主角 */
+.pf-post-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px 11px;
+  margin-top: 10px;
+}
+
+/* 来源：纯文字，无底色 / 无边框 / 无装饰色点 —— 照片才是主角
+   ⚠️ 类名带 post- 前缀：设置页的来源行输入框用的是 .pf-src-name / .pf-src-desc，
+      同名的话那套「输入框样式」（底色+边框+13px）会按顺序覆盖这里的文字样式。 */
+.pf-post-src {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.pf-post-src-name {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+  opacity: 0.7;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pf-post-src-name:hover {
+  opacity: 1;
+}
+
+.pf-post-src-desc {
+  font-size: 11px;
+  color: var(--text-faint);
+  opacity: 0.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pf-post-date-full {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* 「打开原记录」图标按钮 */
+.pf-open {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.pf-open:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pf-open .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── 空状态 / 哨兵 ── */
+.pf-empty {
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+  padding: 60px 20px;
+  line-height: 1.8;
+}
+
+.pf-sentinel {
+  height: 1px;
+}
+
+/* ── 有更新提示 ── */
+.pf-pill {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--pf-fab-bottom, 18px) + 4px);
+  transform: translateX(-50%);
+  z-index: 20;
+}
+
+.pf-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 12.5px;
+  font-family: var(--font-interface);
+  padding: 8px 16px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.pf-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-on-accent);
+  opacity: 0.9;
+}
+
+/* ============================================================
+   浮动按钮：左下角「筛选」/ 右下角「发布」
+   ============================================================ */
+.pf-fab {
+  position: absolute;
+  bottom: var(--pf-fab-bottom, 18px);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 22;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  transition: transform 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.pf-fab:hover {
+  transform: translateY(-1px);
+  background: var(--background-modifier-hover);
+}
+
+.pf-fab .svg-icon {
+  width: 19px;
+  height: 19px;
+}
+
+.pf-fab-filter {
+  left: 18px;
+}
+
+/* 布局切换按钮：叠在筛选按钮上方，左下角竖成一列 */
+.pf-fab-layout {
+  left: 18px;
+  bottom: calc(var(--pf-fab-bottom, 18px) + 52px);
+}
+
+.pf-fab-publish {
+  right: 18px;
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pf-fab-publish:hover {
+  background: var(--interactive-accent-hover, var(--interactive-accent));
+  opacity: 0.92;
+}
+
+.pf-fab-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* 标记当前有筛选生效（不点开也知道） */
+.pf-fab-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-accent);
+  border: 2px solid var(--background-primary);
+}
+
+/* ── 筛选面板（左下角弹出）── */
+.pf-filter-panel {
+  position: absolute;
+  left: 18px;
+  /* 面板底部贴着浮动按钮上沿（两个按钮 44×2 + 间距 16） */
+  bottom: calc(var(--pf-fab-bottom, 18px) + 104px);
+  width: 306px;
+  max-width: calc(100% - 36px);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.2);
+  padding: 14px;
+  z-index: 21;
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pf-filter-panel.pf-panel-open {
+  display: flex;
+  animation: pf-pop 130ms ease;
+}
+
+@keyframes pf-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pf-panel-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-family: var(--font-interface);
+}
+
+.pf-chips {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pf-chip {
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: 12.5px;
+  font-family: var(--font-interface);
+  cursor: pointer;
+  line-height: 1.5;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pf-chip:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pf-chip-active,
+.pf-chip-active:hover {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pf-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pf-select,
+.pf-date,
+.pf-src-type {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-size: 12.5px;
+  font-family: var(--font-interface);
+  padding: 4px 6px;
+  height: auto;
+  box-shadow: none;
+}
+
+.pf-date {
+  flex: 1 1 104px;
+  min-width: 0;
+}
+
+.pf-date-sep {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.pf-reset {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: var(--font-interface);
+}
+
+.pf-reset:hover {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+
+.pf-stat {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 10px;
+}
+
+/* ============================================================
+   Lightbox 大图 / 视频
+   ============================================================ */
+.pf-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(10, 10, 12, 0.95);
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  animation: pf-fade 140ms ease;
+}
+
+@keyframes pf-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.pf-lb-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 26px 64px 8px;
+  cursor: zoom-out;
+}
+
+.pf-lb-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.pf-lb-video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  background: #000;
+  cursor: default;
+}
+
+.pf-lb-hidden {
+  visibility: hidden;
+}
+
+.pf-lb-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  padding: 0;
+}
+
+.pf-lb-close:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.pf-lb-close .svg-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.pf-lb-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 4px;
+  z-index: 3;
+  transition: background 140ms ease;
+}
+
+.pf-lb-nav:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.pf-lb-prev {
+  left: 18px;
+}
+
+.pf-lb-next {
+  right: 18px;
+}
+
+.pf-lb-nav-hidden {
+  display: none;
+}
+
+.pf-lb-bar {
+  flex: 0 0 auto;
+  padding: 12px 20px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12.5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: var(--font-interface);
+}
+
+.pf-lb-meta {
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.62);
+  flex: 0 0 auto;
+}
+
+.pf-lb-caption {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-lb-caption-empty {
+  visibility: hidden;
+}
+
+.pf-lb-counter {
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.62);
+  flex: 0 0 auto;
+}
+
+.pf-lb-open {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: transparent;
+  color: #fff;
+  border-radius: 999px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.pf-lb-open:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.pf-lb-open .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ============================================================
+   设置页
+   ============================================================ */
+.pf-settings-title {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-normal);
+  margin: 6px 0 14px;
+  font-family: var(--font-interface);
+}
+
+.pf-settings-intro,
+.pf-settings-stats,
+.pf-settings-stats-detail {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 4px 0 12px;
+}
+
+.pf-settings-stats-detail {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin-top: -8px;
+}
+
+.pf-src-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 6px 0 12px;
+}
+
+.pf-src-empty {
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+.pf-src-row {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--background-secondary);
+}
+
+.pf-src-row.pf-src-disabled {
+  opacity: 0.55;
+}
+
+.pf-src-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pf-src-enabled {
+  flex: 0 0 auto;
+}
+
+.pf-src-path,
+.pf-src-name,
+.pf-src-desc {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: var(--font-interface);
+  min-width: 0;
+  height: auto;
+  box-shadow: none;
+}
+
+.pf-src-path {
+  flex: 1 1 auto;
+}
+
+.pf-src-name {
+  flex: 0 0 116px;
+}
+
+.pf-src-desc {
+  flex: 1 1 auto;
+}
+
+.pf-src-type {
+  flex: 0 0 auto;
+}
+
+.pf-src-pick,
+.pf-src-del,
+.pf-pub-pick,
+.pf-src-add {
+  flex: 0 0 auto;
+  background: var(--background-modifier-border);
+  border: none;
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  padding: 5px 11px;
+  font-size: 12.5px;
+  font-family: var(--font-interface);
+  cursor: pointer;
+  box-shadow: none;
+  height: auto;
+}
+
+.pf-src-pick:hover,
+.pf-pub-pick:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pf-src-del:hover {
+  background: var(--text-error);
+  color: var(--text-on-accent);
+}
+
+.pf-src-addrow {
+  margin-bottom: 10px;
+}
+
+.pf-src-add {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  padding: 6px 14px;
+}
+
+.pf-src-add:hover {
+  opacity: 0.9;
+}
+
+/* ── 发布设置区块 ── */
+.pf-pub-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 6px 0 14px;
+  flex-wrap: wrap;
+}
+
+.pf-pub-path {
+  flex: 1 1 240px;
+  min-width: 0;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: var(--font-interface);
+  height: auto;
+  box-shadow: none;
+}
+
+.pf-pub-hint {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin: -6px 0 14px;
+  line-height: 1.6;
+}
+
+/* 弹窗里的空提示 / 字段说明 */
+.pf-pub-empty {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  line-height: 1.7;
+  padding: 4px 0;
+}
+
+/* ============================================================
+   发布弹窗
+   ============================================================ */
+.pf-publish-modal {
+  max-width: 560px;
+}
+
+.pf-pub-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pf-pub-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pf-pub-file {
+  position: relative;
+  width: 74px;
+  height: 74px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pf-pub-file img,
+.pf-pub-file video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pf-pub-file-icon {
+  color: var(--text-faint);
+  display: flex;
+}
+
+.pf-pub-file-icon .svg-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.pf-pub-file-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.pf-pub-file-del .svg-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.pf-pub-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-family: var(--font-interface);
+  padding: 18px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.pf-pub-picker:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.pf-pub-picker .svg-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.pf-pub-caption {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+  font-size: 13.5px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  box-shadow: none;
+}
+
+.pf-pub-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pf-pub-label {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  flex: 0 0 auto;
+}
+
+.pf-pub-time,
+.pf-pub-date {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-size: 13px;
+  font-family: var(--font-interface);
+  padding: 4px 7px;
+  height: auto;
+  box-shadow: none;
+}
+
+.pf-pub-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.pf-pub-target-icon {
+  display: flex;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
+.pf-pub-target-icon .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.pf-pub-target span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-pub-target button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  background: var(--background-modifier-border);
+  border: none;
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-size: 12px;
+  font-family: var(--font-interface);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.pf-pub-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ============================================================
+   网格 / 瀑布流布局（首页左下角按钮切换）
+   多列铺满 + 瓦片尺寸固定（--pf-tile 决定列宽档位），
+   数量照旧走 Feed 的分批渲染：滚到哨兵才追加下一批。
+   ============================================================ */
+.pf-feed-inner.pf-grid {
+  max-width: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--pf-tile, 190px), 1fr));
+  gap: 8px;
+  padding: 12px 12px 96px;
+  align-items: start;
+}
+
+.pf-feed-inner.pf-grid.pf-tiles-small {
+  --pf-tile: 128px;
+}
+
+.pf-feed-inner.pf-grid.pf-tiles-medium {
+  --pf-tile: 190px;
+}
+
+.pf-feed-inner.pf-grid.pf-tiles-large {
+  --pf-tile: 280px;
+}
+
+.pf-feed-inner.pf-grid .pf-post {
+  border-radius: 10px;
+  min-width: 0;
+}
+
+/* 瓦片固定正方形：高度不再随原图比例浮动，cover 填满整块 */
+.pf-feed-inner.pf-grid .pf-media {
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 100%;
+  max-height: none;
+}
+
+.pf-feed-inner.pf-grid .pf-media .pf-img,
+.pf-feed-inner.pf-grid .pf-media .pf-video {
+  object-fit: cover;
+}
+
+/* 瓦片小，左右箭头没有意义，张数角标也收小一点 */
+.pf-feed-inner.pf-grid .pf-arrow {
+  display: none;
+}
+
+.pf-feed-inner.pf-grid .pf-counter {
+  top: 6px;
+  right: 6px;
+  font-size: 10.5px;
+  padding: 1px 7px;
+}
+
+/* 哨兵和空状态都要横跨整行，否则会被当成一个瓦片占掉一格 */
+.pf-feed-inner.pf-grid .pf-sentinel,
+.pf-feed-inner.pf-grid .pf-empty {
+  grid-column: 1 / -1;
+}
+
+/* ============================================================
+   窄屏 / 移动端
+   ============================================================ */
+@media (max-width: 640px) {
+  .pf-feed-inner {
+    padding: 10px 8px 90px;
+    gap: 18px;
+  }
+
+  .pf-post {
+    border-radius: 12px;
+  }
+
+  .pf-post-foot {
+    padding: 8px 12px 10px;
+  }
+
+  .pf-media {
+    max-height: calc(var(--pf-max-h, 78) * 0.85vh);
+  }
+
+  .pf-post-body {
+    padding: 10px 12px 0;
+  }
+
+  /* 触摸设备不显示左右按钮 */
+  .pf-arrow {
+    display: none;
+  }
+
+  .pf-fab {
+    width: 42px;
+    height: 42px;
+  }
+
+  .pf-fab-filter {
+    left: 12px;
+  }
+
+  .pf-fab-layout {
+    left: 12px;
+    /* 窄屏按钮是 42px，间距同样留 8px */
+    bottom: calc(var(--pf-fab-bottom, 18px) + 50px);
+  }
+
+  .pf-fab-publish {
+    right: 12px;
+  }
+
+  .pf-filter-panel {
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  /* 窄屏瓦片整体缩一档，保证一屏能排下多列（手机不至于只剩一列） */
+  .pf-feed-inner.pf-grid {
+    gap: 6px;
+    padding: 8px 8px 90px;
+  }
+
+  .pf-feed-inner.pf-grid.pf-tiles-small {
+    --pf-tile: 96px;
+  }
+
+  .pf-feed-inner.pf-grid.pf-tiles-medium {
+    --pf-tile: 140px;
+  }
+
+  .pf-feed-inner.pf-grid.pf-tiles-large {
+    --pf-tile: 200px;
+  }
+
+  .pf-lb-stage {
+    padding: 44px 8px 6px;
+  }
+
+  .pf-lb-nav {
+    width: 38px;
+    height: 38px;
+    font-size: 22px;
+  }
+
+  .pf-lb-prev {
+    left: 6px;
+  }
+
+  .pf-lb-next {
+    right: 6px;
+  }
+
+  .pf-lb-bar {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 10px 14px 14px;
+  }
+
+  .pf-lb-caption {
+    flex: 1 1 100%;
+    order: 3;
+    white-space: normal;
+    max-height: 3.2em;
+  }
+}
+
+/* ============================================================
+   移动端：把浮动按钮抬到原生底栏之上
+   之前两个按钮贴在 bottom:14px，正好被 Obsidian 的底部悬浮导航条
+   （.mobile-navbar，约 52px）压住，看不到也点不到。
+   max() 取「底栏」和「键盘工具栏」中更高的那个，再加安全区。
+   ============================================================ */
+body.is-mobile .pf-root {
+  --pf-fab-bottom: calc(
+    max(var(--mobile-toolbar-height, 0px), 52px) + env(safe-area-inset-bottom, 0px) + 14px
+  );
+}
+
+/* 底部留白跟着按钮走，最后一条 Post 不会被底栏吃掉 */
+body.is-mobile .pf-feed-inner {
+  padding-bottom: calc(var(--pf-fab-bottom) + 76px);
+}
+
+@media (hover: none) {
+  .pf-arrow {
+    display: none;
+  }
+}
+
+/* 尊重系统的减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .pf-img,
+  .pf-arrow,
+  .pf-fab {
+    transition: none;
+  }
+
+  .pf-filter-panel.pf-panel-open {
+    animation: none;
+  }
+}
