@@ -17,7 +17,7 @@ import { parseRecords, splitRecords, buildPosts } from "../src/indexer/parse";
 import {
   ensureSourceFor,
   freshNote,
-  insertMemoItem,
+  insertTimestampItem,
   publishMedia,
   publishNotePath,
   resolveAttachmentFolder,
@@ -286,10 +286,9 @@ async function main(): Promise<void> {
   const synth = `${sources[0].path}/9999.md`;
   const synthBody = [
     "---",
-    "创建时间: 2026-09-09T08:30:00",
+    "date: 2026-09-09T08:30:00",
     "---",
     "",
-    "## Memos",
     `- 08:30 测试三张图 ![[${FX.img1}]] ![[${FX.img2}]] ![[${FX.img3}]]`,
     "- 09:00 只有文字没有图",
     "",
@@ -302,8 +301,8 @@ async function main(): Promise<void> {
   const added = indexer.getPosts().filter((p) => p.file === synth);
   check("新增文件 → 生成 1 条 Post", added.length === 1, `实际 ${added.length}`);
   check("新增 Post 有 3 张照片（轮播）", added[0]?.photos.length === 3, `实际 ${added[0]?.photos.length}`);
-  check("新增 Post 日期取自 frontmatter", added[0]?.date === "2026-09-09", added[0]?.date);
-  check("新增 Post 时间取自 Memos", added[0]?.time === "08:30", added[0]?.time);
+  check("新增 Post 日期取自 frontmatter 的 date", added[0]?.date === "2026-09-09", added[0]?.date);
+  check("新增 Post 时间取自列表时间戳", added[0]?.time === "08:30", added[0]?.time);
   check("无图记录不生成 Post", indexer.getPosts().filter((p) => p.file === synth).length === 1);
   check(
     "索引条数 +1",
@@ -347,7 +346,7 @@ async function main(): Promise<void> {
 
   const rec1 = parseRecords(app2 as never, fakeFile as never, [
     "---",
-    "创建时间: 2026-01-01T09:00:00",
+    "date: 2026-01-01T09:00:00",
     "---",
     "今天画了一只鸟",
     `![[${FX.img1}|600x400]]`,
@@ -384,6 +383,20 @@ async function main(): Promise<void> {
     JSON.stringify(cleanRecordText("看看 [[主题[副标题]|别名]] 这段"))
   );
 
+  // 日期基准只认通用字段 `date`（以及路径 / mtime 兜底），不认任何个人模板字段
+  const fmDate = (lines: string[]): string =>
+    parseRecords(app2 as never, fakeFile as never, lines.join("\n"))[0]?.date ?? "";
+  check(
+    "日期基准：frontmatter 的 `date`",
+    fmDate(["---", "date: 2026-03-05", "---", `![[${FX.img1}]]`]) === "2026-03-05",
+    fmDate(["---", "date: 2026-03-05", "---", `![[${FX.img1}]]`])
+  );
+  check(
+    "日期基准：只有 `date` 字段算数，其他字段名一律不特殊对待（回落到路径 / mtime）",
+    fmDate(["---", "publish_at: 2026-03-05T09:00:00", "---", `![[${FX.img1}]]`]) !== "2026-03-05" &&
+      fmDate(["---", "archived_on: 2026-03-05", "---", `![[${FX.img1}]]`]) !== "2026-03-05"
+  );
+
   const posts1 = buildPosts(
     app2 as never,
     fakeFile as never,
@@ -397,7 +410,7 @@ async function main(): Promise<void> {
 
   const seg = splitRecords(
     [
-      "## Memos",
+      "## 记录",
       `- 10:00 上午图 ![[${FX.img1}]]`,
       `- 11:00 下午两图 ![[${FX.img2}]] ![[${FX.img3}]]`,
       "- 12:00 纯文字",
@@ -406,23 +419,23 @@ async function main(): Promise<void> {
     "2026-09-09",
     ""
   );
-  check("Memos 分段切分正确（3 条记录）", seg.length === 3, `实际 ${seg.length}`);
+  check("列表时间戳切分正确（3 条记录）", seg.length === 3, `实际 ${seg.length}`);
   check("分段 1 时间 10:00 / 1 图", seg[0].time === "10:00" && seg[0].images.length === 1);
   check("分段 2 时间 11:00 / 2 图", seg[1].time === "11:00" && seg[1].images.length === 2);
   check("分段 3 无图", seg[2].images.length === 0);
 
-  const masto = splitRecords(
+  const hSeg = splitRecords(
     ["# 2026-09-11", "", "### 08:00", "早上好", "", "---", "### 09:30", "两只猫", `![[${FX.img2}]]`, `![[${FX.img1}]]`, ""].join("\n"),
     "2026-09-11",
     ""
   );
-  check("时间戳分段切分正确（2 条）", masto.length === 2, `实际 ${masto.length}`);
-  check("分段 1 无图", masto[0].time === "08:00" && masto[0].images.length === 0);
-  check("分段 2 两图", masto[1].time === "09:30" && masto[1].images.length === 2);
+  check("时间戳分段切分正确（2 条）", hSeg.length === 2, `实际 ${hSeg.length}`);
+  check("分段 1 无图", hSeg[0].time === "08:00" && hSeg[0].images.length === 0);
+  check("分段 2 两图", hSeg[1].time === "09:30" && hSeg[1].images.length === 2);
 
   // ───────── 5b. Post 起点只认时间戳，不认固定标题 ─────────
   // 规则：`- HH:MM`（可带尾随文字）与 `### HH:MM` 是起点，直到下一个时间戳之前；
-  //       Memos / Journal / 随记 / 日记 这些标题不参与任何判断。
+  //       任何二级标题（不管叫什么）都不参与判断。
   {
     type Recs = ReturnType<typeof splitRecords>;
     const T = (src: string, baseTime = ""): Recs => splitRecords(src, "2026-09-12", baseTime);
@@ -489,7 +502,7 @@ async function main(): Promise<void> {
       JSON.stringify({ n: fb.length, time: fb[0]?.time, date: fb[0]?.date })
     );
 
-    // ⑫ 没有 Memos / Journal / 随记 / 日记 也照样解析
+    // ⑫ 没有任何「约定俗成的」二级标题也照样解析
     check(
       "⑫a 无固定标题：`## 我的照片记录` + `### 18:53` 正常解析",
       ts(`## 我的照片记录\n\n### 18:53\n\n今天拍的照片。\n\n![[${FX.img1}]]\n`) === "18:53"
@@ -499,8 +512,8 @@ async function main(): Promise<void> {
       ts(`## 任意标题\n\n- 12:56\n\n![[${FX.img1}]]\n`) === "12:56"
     );
     check(
-      "⑫c `## Memos` 只是普通标题，有它没它切分结果一样",
-      ts(`- 12:56\n  ![[${FX.img1}]]\n`) === ts(`## Memos\n\n- 12:56\n  ![[${FX.img1}]]\n`)
+      "⑫c 常见的记录类标题（如 `## 记录`）只是普通标题，有它没它切分结果一样",
+      ts(`- 12:56\n  ![[${FX.img1}]]\n`) === ts(`## 记录\n\n- 12:56\n  ![[${FX.img1}]]\n`)
     );
 
     // ⑭ 含媒体但不含固定标题的文件不能被跳过（走真实的 buildPosts）
@@ -518,7 +531,7 @@ async function main(): Promise<void> {
   const grouped = buildPosts(
     app2 as never,
     fakeFile as never,
-    ["## Memos", `- 10:00 一图 ![[${FX.img1}]]`, `- 11:00 一图 ![[${FX.img2}]]`].join("\n"),
+    ["## 记录", `- 10:00 一图 ![[${FX.img1}]]`, `- 11:00 一图 ![[${FX.img2}]]`].join("\n"),
     sources[0],
     "file",
     220
@@ -552,7 +565,7 @@ async function main(): Promise<void> {
         "---",
         "date: 2026-09-09",
         "---",
-        "## Memos",
+        "## 记录",
         "",
         `- 10:00 视频与图 ![[${FX.clip}]] ![[${FX.img3}]]`,
         "",
@@ -634,23 +647,54 @@ async function main(): Promise<void> {
     check("重名自动加序号", uniqueName(names, "a.jpg") === "a-1.jpg", uniqueName(names, "a.jpg"));
     check("不重名保持原样", uniqueName(names, "b.jpg") === "b.jpg");
 
-    const note = insertMemoItem(freshNote("2026-09-12"), {
+    const note = insertTimestampItem(freshNote("2026-09-12"), {
       time: "09:00",
       caption: "早上拍的",
       embeds: ["![[a.jpg]]"],
     });
-    check("新文件里出现 ## Memos 段", note.includes("## Memos"));
+    check("新文件不预置任何标题（不再有 ## Memos）", !/^#{1,6}\s/m.test(note), JSON.stringify(note));
+    check(
+      "新文件结构：frontmatter 后直接是记录",
+      note.startsWith("---\ndate: 2026-09-12\n---\n"),
+      JSON.stringify(note)
+    );
     check("写入 `- HH:MM` 记录", note.includes("- 09:00 早上拍的"), JSON.stringify(note));
     check("媒体用纯文件名 wiki 嵌入", note.includes("  ![[a.jpg]]"));
 
-    const two = insertMemoItem(note, { time: "07:30", caption: "更早", embeds: ["![[b.jpg]]"] });
+    // 已有正文但一条时间戳都没有 → 追加到文末，同样不造标题
+    const plain = insertTimestampItem("---\ndate: 2026-09-12\n---\n\n一些前言文字\n", {
+      time: "09:00",
+      caption: "追加",
+      embeds: ["![[a.jpg]]"],
+    });
+    check(
+      "无时间戳的文件：追加到文末且不新建标题",
+      !/^#{1,6}\s/m.test(plain) &&
+        plain.includes("一些前言文字") &&
+        plain.indexOf("- 09:00") > plain.indexOf("一些前言文字"),
+      JSON.stringify(plain)
+    );
+
+    // 标题叫什么都不影响：随便一个二级标题，插入位置照样由时间戳决定
+    const anyHead = insertTimestampItem(
+      ["## 任何标题", "", "- 08:00 早", "  ![[a.jpg]]", "", "- 20:00 晚", "  ![[b.jpg]]", ""].join("\n"),
+      { time: "12:00", caption: "中午", embeds: ["![[c.jpg]]"] }
+    );
+    check(
+      "固定标题叫什么都不影响插入（只看时间戳）",
+      anyHead.indexOf("- 12:00") > anyHead.indexOf("- 08:00") &&
+        anyHead.indexOf("- 12:00") < anyHead.indexOf("- 20:00")
+    );
+    check("原有标题原样保留", anyHead.includes("## 任何标题"));
+
+    const two = insertTimestampItem(note, { time: "07:30", caption: "更早", embeds: ["![[b.jpg]]"] });
     check(
       "按时间升序插入：07:30 排在 09:00 之前",
       two.indexOf("- 07:30") >= 0 && two.indexOf("- 07:30") < two.indexOf("- 09:00")
     );
-    const three = insertMemoItem(two, { time: "21:00", caption: "晚上", embeds: ["![[c.jpg]]"] });
+    const three = insertTimestampItem(two, { time: "21:00", caption: "晚上", embeds: ["![[c.jpg]]"] });
     check("更晚的时间排到最后", three.indexOf("- 21:00") > three.indexOf("- 09:00"));
-    const four = insertMemoItem(three, {
+    const four = insertTimestampItem(three, {
       time: "09:00",
       caption: "同时间再来一条",
       embeds: ["![[d.jpg]]"],
@@ -662,24 +706,35 @@ async function main(): Promise<void> {
     );
     check("插入不会丢内容", four.includes("- 07:30") && four.includes("- 21:00") && four.includes("- 09:00"));
 
-    // CRLF 保留 + 原内容不动
-    const crlf = ["---", "date: 2026-09-12", "---", "", "## Memos", "", "- 08:00 旧", ""].join("\r\n");
-    const kept = insertMemoItem(crlf, { time: "09:00", caption: "新", embeds: ["![[a.jpg]]"] });
+    // CRLF 保留 + 原内容不动（标题随便叫什么，都不影响插到已有时间戳之间）
+    const crlf = [
+      "---",
+      "date: 2026-09-12",
+      "---",
+      "",
+      "## 记录",
+      "",
+      "- 08:00 旧",
+      "",
+    ].join("\r\n");
+    const kept = insertTimestampItem(crlf, { time: "09:00", caption: "新", embeds: ["![[a.jpg]]"] });
     check("CRLF 文件保持 CRLF（不整篇改成 LF）", kept.includes("\r\n") && !/[^\r]\n/.test(kept));
     check(
-      "原有内容保持不变（frontmatter + 旧记录）",
-      kept.startsWith("---\r\ndate: 2026-09-12") && kept.includes("- 08:00 旧")
+      "原有内容保持不变（frontmatter + 原有标题 + 旧记录）",
+      kept.startsWith("---\r\ndate: 2026-09-12") &&
+        kept.includes("## 记录") &&
+        kept.includes("- 08:00 旧")
     );
 
     // 分段风格：### HH:MM
     const segmented = ["# 2026-09-12", "", "### 08:00", "早上好", "", "### 20:00", "晚安", ""].join("\n");
-    const m2 = insertMemoItem(segmented, { time: "12:00", caption: "午间", embeds: ["![[x.jpg]]"] });
+    const m2 = insertTimestampItem(segmented, { time: "12:00", caption: "午间", embeds: ["![[x.jpg]]"] });
     check("已有 ### HH:MM 分段时沿用分段格式", m2.includes("### 12:00"), JSON.stringify(m2));
     check(
       "分段按时间插到 08:00 与 20:00 之间",
       m2.indexOf("### 12:00") > m2.indexOf("### 08:00") && m2.indexOf("### 12:00") < m2.indexOf("### 20:00")
     );
-    check("分段模式下不额外造 ## Memos", !m2.includes("## Memos"));
+    check("分段模式下不会新建任何标题", !/^##\s/m.test(m2), JSON.stringify(m2));
   }
 
   // ───────── 8. 发布：写附件 + 追加同一个 md（全内存，不碰真实 Vault）─────────
@@ -720,6 +775,7 @@ async function main(): Promise<void> {
       app3.vault.getAbstractFileByPath(r1.notePath) as TFile
     );
     check("发布：md 里写了时间戳记录", note1.includes("- 09:00 第一帖"), note1);
+    check("发布：新建的 md 里没有任何标题", !/^#{1,6}\s/m.test(note1), note1);
     check("发布：md 里嵌入了两个媒体", (note1.match(/!\[\[/g) ?? []).length === 2, note1);
     check(
       "发布：媒体用纯文件名嵌入（不带路径）",
@@ -772,6 +828,9 @@ async function main(): Promise<void> {
     const addedSrc = ensureSourceFor(s3, PUB);
     check("自动把发布文件夹加为来源", addedSrc === PUB, `实际 ${addedSrc}`);
     check("发布文件夹出现在来源列表里", s3.sources.some((s) => s.path === PUB));
+    const autoSrc = s3.sources.find((s) => s.path === PUB);
+    check("自动来源的显示名 = 文件夹末级名", autoSrc?.name === PUB, autoSrc?.name);
+    check("自动来源的说明留空（不写死任何描述）", autoSrc?.desc === "", JSON.stringify(autoSrc?.desc));
     check(
       "来源已存在时不重复添加（幂等）",
       ensureSourceFor(s3, PUB) === null &&

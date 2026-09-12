@@ -3,6 +3,8 @@
  *
  * 约定：
  *  - 一个时间戳 = 一个 Post。同一天发多条 → 追加进同一个 md（按时间升序插入）
+ *  - **只按时间戳定位，不创建也不依赖任何固定标题**：文件里已有 `### HH:MM` 分段就沿用分段，
+ *    否则用 `- HH:MM` 列表项；没有锚点标题照样能写
  *  - 目标 md：`{发布文件夹}/YYYY/MM/MMDD.md`，不跟随 Obsidian 原生日记
  *  - 附件写入「附件文件夹」（默认跟随 Obsidian 的设置），文件名全库唯一
  *  - 媒体一律用纯文件名 wiki 嵌入 `![[文件名.ext]]`
@@ -87,101 +89,87 @@ export function publishNotePath(folder: string, date: string): string {
 export const folderOf = (path: string): string =>
   path.split("/").slice(0, -1).join("/");
 
-/** 新建 md 的初始内容 */
+/**
+ * 新建 md 的初始内容：只有 frontmatter 和日期，正文留空。
+ * **不预置任何标题** —— 记录靠时间戳定位，不需要一个固定的二级标题当锚点。
+ */
 export function freshNote(date: string): string {
-  return ["---", `date: ${date}`, "---", "", "## Memos", ""].join("\n");
+  return ["---", `date: ${date}`, "---", ""].join("\n");
 }
 
 const oneLine = (s: string): string => s.replace(/\s*\n\s*/g, " ").trim();
 
-export interface MemoItem {
+/** 一条待写入的记录 */
+export interface RecordItem {
   time: string;
   caption: string;
   embeds: string[];
 }
 
 /** 一条记录在 md 里的样子（`- HH:MM` 列表式） */
-export function memoItemLines(item: MemoItem): string[] {
+export function recordItemLines(item: RecordItem): string[] {
   const cap = oneLine(item.caption);
   const out = [`- ${item.time}${cap ? " " + cap : ""}`];
   if (item.embeds.length) out.push(`  ${item.embeds.join(" ")}`);
   return out;
 }
 
-const MEMO_HEAD_RE = /^##\s*(Memos|随记|日记|Journal)\s*$/i;
+/** 三级标题时间戳 `### HH:MM` */
 const SEG_LINE_RE = /^###\s+(\d{1,2}):(\d{2})\s*$/;
+/** 列表项时间戳 `- HH:MM`（与解析器的列表时间戳同一套写法） */
 const ITEM_LINE_RE = /^[-*]\s+(\d{1,2}):(\d{2})/;
 
 const normTime = (h: string, m: string): string => `${pad(Number(h))}:${m}`;
 
 /**
  * 往 md 正文里插入一条带时间戳的记录。
- * 按时间升序插入；已存在相同时间戳时追加在它之后（保持先发的在上面）。
- * 自动识别两种文件风格：
- *  - `## Memos` 段 + `- HH:MM` 列表项（日记类插件的常见写法）
- *  - `### HH:MM` 分段（社交平台同步脚本的常见写法）
+ *
+ * **只按时间戳定位，不认任何固定标题**：文件里已经有 `### HH:MM` 分段就沿用分段格式，
+ * 否则按 `- HH:MM` 列表项插入。两种情况都按时间升序，同一时间戳追加在已有记录之后。
  */
-export function insertMemoItem(body: string, item: MemoItem): string {
+export function insertTimestampItem(body: string, item: RecordItem): string {
   const eol = body.includes("\r\n") ? "\r\n" : "\n";
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const hasMemoSection = lines.some((l) => MEMO_HEAD_RE.test(l));
-  const hasSegments = lines.some((l) => SEG_LINE_RE.test(l));
-
-  if (hasSegments && !hasMemoSection) return insertSegment(lines, eol, item);
-  return insertMemoListItem(lines, eol, item);
+  return lines.some((l) => SEG_LINE_RE.test(l))
+    ? insertAsSegment(lines, eol, item)
+    : insertAsListItem(lines, eol, item);
 }
 
-/** `## Memos` + `- HH:MM` 风格 */
-function insertMemoListItem(lines: string[], eol: string, item: MemoItem): string {
-  const block = memoItemLines(item);
-  const secHead = lines.findIndex((l) => MEMO_HEAD_RE.test(l));
+/** `- HH:MM` 列表项风格 */
+function insertAsListItem(lines: string[], eol: string, item: RecordItem): string {
+  const block = recordItemLines(item);
 
-  // 没有记录段 → 文末补一个
-  if (secHead < 0) {
-    if (lines.length && lines[lines.length - 1].trim() !== "") lines.push("");
-    lines.push("", "## Memos", "");
-    lines.splice(lines.length, 0, ...block);
-    return lines.join(eol);
-  }
-
-  // 段范围：到下一个 `## ` 标题为止
-  let end = lines.length;
-  for (let i = secHead + 1; i < lines.length; i++) {
-    if (/^##\s/.test(lines[i])) {
-      end = i;
-      break;
-    }
-  }
-
-  // 段内的 `- HH:MM` 项
+  // 文件里已有的 `- HH:MM` 项（它们的位置就是插入锚点）
   const items: { idx: number; time: string }[] = [];
-  for (let i = secHead + 1; i < end; i++) {
-    const m = lines[i].match(ITEM_LINE_RE);
-    if (m) items.push({ idx: i, time: normTime(m[1], m[2]) });
+  lines.forEach((l, idx) => {
+    const m = l.match(ITEM_LINE_RE);
+    if (m) items.push({ idx, time: normTime(m[1], m[2]) });
+  });
+
+  // 一条时间戳记录都还没有 → 追加到正文末尾，不新建任何标题
+  if (!items.length) {
+    while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+    if (lines.length) lines.push("");
+    lines.push(...block);
+    return lines.join(eol);
   }
 
   let insertAt: number;
   const later = items.find((it) => it.time > item.time);
   if (later) {
     insertAt = later.idx;
-  } else if (items.length) {
+  } else {
     // 追加到最后一项之后（连同它的缩进续行）
     let i = items[items.length - 1].idx + 1;
-    while (i < end && /^[ \t]/.test(lines[i])) i++;
-    insertAt = i;
-  } else {
-    // 段内还没有条目：跳过标题后的空行
-    let i = secHead + 1;
-    while (i < end && lines[i].trim() === "") i++;
+    while (i < lines.length && /^[ \t]/.test(lines[i])) i++;
     insertAt = i;
   }
-
   lines.splice(insertAt, 0, ...block);
   return lines.join(eol);
 }
 
-/** `### HH:MM` 分段风格（社交平台同步脚本常用） */
-function insertSegment(lines: string[], eol: string, item: MemoItem): string {
+/** `### HH:MM` 分段风格 */
+function insertAsSegment(lines: string[], eol: string, item: RecordItem): string {
   const marks: { idx: number; time: string }[] = [];
   lines.forEach((l, idx) => {
     const m = l.match(SEG_LINE_RE);
@@ -294,12 +282,12 @@ export async function publishMedia(
   }
 
   // ── 写 / 追加 md ──
-  const item: MemoItem = { time: req.time, caption: req.caption, embeds };
+  const item: RecordItem = { time: req.time, caption: req.caption, embeds };
   const existing = app.vault.getAbstractFileByPath(notePath);
   if (existing instanceof TFile) {
-    await app.vault.process(existing, (data) => insertMemoItem(data, item));
+    await app.vault.process(existing, (data) => insertTimestampItem(data, item));
   } else {
-    await app.vault.create(notePath, insertMemoItem(freshNote(req.date), item));
+    await app.vault.create(notePath, insertTimestampItem(freshNote(req.date), item));
   }
 
   return {
@@ -323,9 +311,10 @@ export function ensureSourceFor(
   settings.sources.push({
     id: `src-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     path: dir,
+    // 显示名从文件夹末级名推导，说明留空（不替用户写死任何描述）
     name: dir.split("/").pop() || dir,
     type: "personal",
-    desc: "视界发布",
+    desc: "",
     enabled: true,
   });
   return dir;

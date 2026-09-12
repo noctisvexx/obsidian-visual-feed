@@ -42,7 +42,7 @@ export interface ParsedRecord {
   images: RawImageRef[];
 }
 
-/** 解析一篇 Markdown → 记录列表（日期/时间基准：frontmatter → 路径 → mtime） */
+/** 解析一篇 Markdown → 记录列表（日期基准：frontmatter 的 `date` → 路径 → mtime） */
 export function parseRecords(app: App, file: TFile, bodyRaw: string): ParsedRecord[] {
   const body = normalizeBody(bodyRaw);
 
@@ -56,14 +56,11 @@ export function parseRecords(app: App, file: TFile, bodyRaw: string): ParsedReco
     return stripTemplateCode(String(v)).trim();
   };
 
+  // 日期基准：frontmatter 的 `date`（通用字段）→ 路径里的日期 → 文件修改时间
   const baseDate =
-    toDateStr(fmStr("创建时间")) ||
-    toDateStr(fmStr("date")) ||
-    toDateStr(fmStr("completed_date")) ||
-    dateFromPath(file.path) ||
-    fmtDate(new Date(file.stat.mtime));
-  const baseTime =
-    toTimeStr(fmStr("创建时间")) || toTimeStr(fmStr("date")) || timeFromPath(file.path);
+    toDateStr(fmStr("date")) || dateFromPath(file.path) || fmtDate(new Date(file.stat.mtime));
+  // 时间基准：frontmatter 的 `date` → 文件名里的 HH-MM
+  const baseTime = toTimeStr(fmStr("date")) || timeFromPath(file.path);
 
   const bodyText = stripFrontmatter(body);
   return splitRecords(bodyText, baseDate, baseTime);

@@ -61,6 +61,8 @@
 - **一个时间戳 = 一条 Post**。同一天发多条，会自动按 `HH:MM` 升序插进同一个文件，而不是各写一个文件。
 - 分段**只看时间戳，不认固定标题**：`### HH:MM` 小标题或 `- HH:MM` 列表项都是 Post 的开头，一直管到下一条时间戳为止。`## Memos` / `## 随记` / `## 日记` / `## Journal` 这类标题只是普通标题，叫什么、有没有都不影响解析。
 - 沿用你文件里**已经有的格式**：本来是 `### HH:MM` 小标题就插小标题，本来是 `- HH:MM` 列表就插列表项；两种混在同一份文件里也会按出现顺序正常解析。
+- **完全没有时间戳也照样能用**：正文里一个 `HH:MM` 都没有时，**整篇算一条记录**（文件级回退），不会因为缺时间戳就把含图的笔记跳过。适合「一天一篇、每篇几张图」的写法 —— 那些图会合并成**一张卡片的多图轮播**。
+- **日期和时分都是兜底着来的**，不要求任何特定写法：日期取 `date` → 路径里的年月日 → 文件修改时间；时分取 `date` 里的时间 → 文件名里的 `HH-MM`。两者都取不到就只显示日期，**不硬造一个时间**出来。
 - 文件名里的 Windows 非法字符会被清洗（冒号特别危险 —— 它会被 NTFS 当成 ADS 静默截断成 0 字节），重名自动加 `-1`，换行符保持原样。
 - 视频用 `<video controls preload="metadata" playsinline>`，**绝不自动播放**；点视频本体不会误触发 Lightbox。
 - 发布后只重新索引**刚写的那一个文件**，不会重建全库。
@@ -144,7 +146,7 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 **355** 项断言：
+两套测试，加起来 **364** 项断言：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
 - **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页动态重绘。
@@ -237,6 +239,8 @@ A few things done deliberately right:
 - **One timestamp = one post.** Several posts on the same day are inserted into the same file in ascending `HH:MM` order, instead of each getting its own file.
 - Segmentation **only looks at timestamps, never at fixed headings**: a `### HH:MM` heading or a `- HH:MM` list item starts a post, and it runs until the next timestamp. Headings like `## Memos` / `## Journal` are just ordinary headings — name them whatever you like, or leave them out entirely.
 - It **follows the format your file already has**: a `### HH:MM` file gets a heading, a `- HH:MM` list file gets a list item; mixing the two in the same file still parses in file order.
+- **No timestamps at all works too**: when the body contains no `HH:MM` whatsoever, **the whole note counts as one record** (a file-level fallback), so a note with media is never skipped just because it lacks timestamps. Ideal for "one note a day, a few photos each" — those photos become **one card with a carousel**.
+- **Both the date and the time fall back gracefully**, so no particular writing style is required: the date comes from `date` → date components in the path → file mtime; the time comes from `date` → `HH-MM` in the filename. When neither yields one, only the date is shown — **no time is invented**.
 - Windows-illegal characters in filenames are sanitised (colons are especially dangerous — NTFS treats them as ADS and silently truncates the file to 0 bytes), duplicates get a `-1` suffix, and line breaks are preserved as-is.
 - Videos use `<video controls preload="metadata" playsinline>` and **never autoplay**; tapping the video itself will not accidentally trigger the lightbox.
 - After publishing, only **the one file just written** is re-indexed, never the whole vault.
@@ -321,7 +325,7 @@ npm test        # bundle the tests + run the end-to-end suite
 
 #### Tests
 
-Two suites, **355** assertions in total:
+Two suites, **364** assertions in total:
 
 - **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
 - **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, settings-page re-rendering.

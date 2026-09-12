@@ -4,8 +4,8 @@
 export const stripTemplateCode = (s: string): string => s.replace(/<%[\s\S]*?%>/g, "");
 
 /**
- * 统一换行符 + 去 BOM。
- * Day One 导入的旧日记大量使用 CRLF，不归一化会导致分段正则失配。
+ * 统一换行符（CRLF → LF）并移除 BOM。
+ * 不同来源的 Markdown 换行格式不一致，不归一化会导致按行首匹配的正则失配。
  */
 export const normalizeBody = (body: string): string =>
   body.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
