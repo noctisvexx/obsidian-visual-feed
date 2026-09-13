@@ -1,4 +1,8 @@
+<a name="zh"></a>
+
 # 视界 · Visual Feed
+
+**中文** | [English](#english)
 
 > 把你散落在 Obsidian 里的照片重新组织起来，变成一个能一直往下滑的照片流。
 
@@ -197,6 +201,8 @@ gh attestation verify main.js --owner noctisvexx
 ---
 
 ## English
+
+[中文](#zh) | **English**
 
 > Regroup the photos scattered across your Obsidian notes into a feed you can keep scrolling.
 
