@@ -56,7 +56,7 @@ export const nowTime = (d = new Date()): string =>
 export function sanitizeFileName(name: string): string {
   const clean = name
     .replace(/[:*?"<>|]/g, "-")
-    // eslint-disable-next-line no-control-regex
+    // eslint-disable-next-line no-control-regex -- 就是要匹配控制字符，正则里必须写 \u0000-\u001f
     .replace(/[\u0000-\u001f]/g, "")
     .replace(/\s+/g, " ")
     .replace(/^[.\s]+|[.\s]+$/g, "")

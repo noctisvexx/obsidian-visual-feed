@@ -28,6 +28,12 @@ export class Indexer {
   private flushTimer: number | null = null;
   private pendingPaths = new Set<string>();
   private itemDirty = false;
+  /**
+   * 自上次落盘以来发生过「只删不增」的变更（删除文件 / 删除文件夹 / 移出来源目录）。
+   * 这类变更不产生待解析路径，但同样要落盘；而且它是「内容变少」，
+   * 视图不该按「有新照片」的礼貌策略压住不刷新。
+   */
+  private removedDirty = false;
   private building = false;
 
   constructor(plugin: PhotoFeedPlugin, existing: FeedIndex | null) {
@@ -263,9 +269,13 @@ export class Indexer {
       this.handleMediaChange(file);
       return;
     }
-    if (!this.shouldIndex(file)) return;
+    // 判断依据是「索引里有没有这个路径」，而不是当前路径是否命中来源目录：
+    // 文件被移出来源目录后再删除时，shouldIndex 已经是 false，但残留索引必须清掉。
+    const known = this.isIndexed(file.path);
+    if (!this.shouldIndex(file) && !known) return;
     this.pendingPaths.delete(file.path);
     this.removeFile(file.path);
+    this.removedDirty = true;
     this.scheduleFlush();
   }
 
@@ -278,11 +288,42 @@ export class Indexer {
       });
       return;
     }
+    const hadOld = this.isIndexed(oldPath);
+    const wantNew = this.shouldIndex(file);
+    if (!hadOld && !wantNew) return;
     this.removeFile(oldPath);
-    if (this.shouldIndex(file)) {
-      this.pendingPaths.add(file.path);
-      this.scheduleFlush();
+    if (wantNew) this.pendingPaths.add(file.path);
+    // 改名后新路径不属于任何来源目录时，只有「移除旧记录」这件事要落盘；
+    // 之前的写法会把这次落盘整个跳过，导致旧照片一直挂在首页。
+    this.removedDirty = true;
+    this.scheduleFlush();
+  }
+
+  /** 删除整个文件夹（Obsidian 对文件夹只发一次 delete 事件，不会逐个子文件回调） */
+  handleDeleteFolder(folderPath: string): void {
+    const dir = normalizePath(folderPath || "").replace(/\/+$/, "");
+    if (!dir) return;
+    const under = (p: string): boolean => p === dir || p.startsWith(dir + "/");
+    const paths = Object.keys(this.index.files).filter(under);
+    // 索引里没有该目录的任何记录 → 无事可做
+    const orphans = this.index.posts.filter((p) => under(p.file)).length;
+    if (!paths.length && !orphans) return;
+    for (const p of paths) {
+      this.pendingPaths.delete(p);
+      this.removeFile(p);
     }
+    // 兜底：files 里没有但 posts 里有的残留（正常不会出现）
+    if (orphans) {
+      this.index.posts = this.index.posts.filter((p) => !under(p.file));
+      this.itemDirty = true;
+    }
+    this.removedDirty = true;
+    this.scheduleFlush();
+  }
+
+  /** 该路径是否已在索引中（含无图文件） */
+  private isIndexed(path: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.index.files, path);
   }
 
   /**
@@ -322,7 +363,10 @@ export class Indexer {
       if (body === null) continue;
       this.applyParsed(f, source, body);
     }
-    if (paths.length) await this.save();
+    // 删除 / 移出来源目录不会产生待解析路径，但同样要落盘并通知视图，
+    // 否则首页里的旧照片会一直挂着不消失。
+    if (!paths.length && !this.removedDirty) return;
+    await this.save();
   }
 
   // ───────────────────────── 索引维护 ─────────────────────────
@@ -447,8 +491,12 @@ export class Indexer {
   }
 
   private async persistNow(): Promise<void> {
-    const notify = this.itemDirty;
+    const removed = this.removedDirty;
+    this.removedDirty = false;
+    const dirty = this.itemDirty;
     this.itemDirty = false;
+    // 只有删除的批次用 "removal"：视图会立即重渲染，不走「正在往下看就先提示」的礼貌策略。
+    const notify: boolean | "removal" = dirty ? (removed ? "removal" : true) : false;
     await this.plugin.persistIndex(this.index, notify);
   }
 }

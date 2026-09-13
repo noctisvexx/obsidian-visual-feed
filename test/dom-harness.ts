@@ -126,6 +126,12 @@ export function setupDom(): DomEnv {
   g.createEl = (tag: string, o?: DomInfo | string): AnyEl => makeEl(doc, tag, o);
   g.createDiv = (o?: DomInfo | string): AnyEl => makeEl(doc, "div", o);
   g.createSpan = (o?: DomInfo | string): AnyEl => makeEl(doc, "span", o);
+  // 插件里用 Obsidian 全局的 createFragment（社区规范要求，不用 document.createDocumentFragment）
+  g.createFragment = (cb?: (frag: DocumentFragment) => void): DocumentFragment => {
+    const frag = doc.createDocumentFragment();
+    cb?.(frag);
+    return frag;
+  };
   g.Notice = class {
     constructor(_msg?: string) {
       /* 测试环境静默 */

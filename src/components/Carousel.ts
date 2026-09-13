@@ -102,7 +102,8 @@ export class Carousel {
   }
 
   private buildSlides(): void {
-    const frag = document.createDocumentFragment();
+    // 用 Obsidian 的 createFragment（全局）而不是 document.createDocumentFragment
+    const frag = createFragment();
     this.photos.forEach((photo, i) => {
       const slide = createDiv({ cls: "pf-slide" });
       const kind = kindOf(photo);

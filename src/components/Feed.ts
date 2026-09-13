@@ -170,7 +170,8 @@ export class Feed {
     // 无 IO 的环境一次性渲染完，避免逐批递归
     const step = this.batchEnabled ? pageSize : Math.max(1, units.length);
     const end = Math.min(this.rendered + step, units.length);
-    const frag = document.createDocumentFragment();
+    // 用 Obsidian 的 createFragment（全局）而不是 document.createDocumentFragment
+    const frag = createFragment();
     // 网格布局下卡片退化成纯照片瓦片（不建正文 / 底部信息条）
     const isGrid = (this.config.layout ?? "feed") === "grid";
     const cardConfig: FeedConfig = { ...this.config, tile: isGrid };

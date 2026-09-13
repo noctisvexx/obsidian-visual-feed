@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]*" # 只认 1.6.4 这类数字开头的 tag
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要重新构建 / 上传附件的 tag（例如 1.6.4）
+        required: true
+
+permissions:
+  contents: write # 建 Release、上传附件
+  id-token: write # 换 OIDC token（Sigstore 签名用）
+  attestations: write # 写入 attestation
+  artifact-metadata: write # 记录构件元数据
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # tag 与 manifest.json 的 version 必须一字不差，否则直接失败
+      - name: 版本号自检
+        run: |
+          set -eu
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          manifest=$(node -p "require('./manifest.json').version")
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag '$tag' 与 manifest.json 的 version '$manifest' 不一致（不能带 v 前缀）"
+            exit 1
+          fi
+
+      - name: 安装依赖并构建
+        run: |
+          npm ci
+          npm run build
+
+      - name: 生成构件来源证明
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: 创建 / 更新 Release 并上传附件
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" main.js manifest.json styles.css --clobber
+          else
+            gh release create "$tag" main.js manifest.json styles.css \
+              --title "$tag" --generate-notes --verify-tag
+          fi

@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile } from "obsidian";
+import { Notice, Plugin, TFile, TFolder } from "obsidian";
 import { Indexer } from "./indexer/indexer";
 import {
   DEFAULT_SETTINGS,
@@ -27,20 +27,27 @@ import { PHOTO_FEED_VIEW_TYPE, PhotoFeedView } from "./views/PhotoFeedView";
  *   - 发布：写附件 + 按时间戳追加记录，只重解析那一篇 md（不重建全库索引）
  *   - 纯本地：不复制原文件、不生成缩略图、不上传；发布之外不改动任何 Markdown
  */
+/** 插件 data.json 的存档结构（settings + 持久化索引） */
+interface StoredData {
+  settings?: Partial<PhotoFeedSettings>;
+  index?: FeedIndex | null;
+}
+
 export default class PhotoFeedPlugin extends Plugin {
   settings!: PhotoFeedSettings;
   indexer!: Indexer;
   private indexListeners = new Set<(source: "settings" | "index") => void>();
 
   async onload(): Promise<void> {
-    const data = await this.loadData();
-    const raw = (data?.settings ?? {}) as Partial<PhotoFeedSettings>;
+    // loadData() 的类型是 any —— 收窄成存档结构，别让 any 渗进后面的类型推导。
+    const data = (await this.loadData()) as StoredData | null;
+    const raw = data?.settings ?? {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
     this.settings.sources = normalizeSources(this.settings.sources);
     normalizeRatioSettings(this.settings);
     normalizeLayoutSettings(this.settings);
 
-    this.indexer = new Indexer(this, (data?.index as FeedIndex) ?? null);
+    this.indexer = new Indexer(this, data?.index ?? null);
 
     this.registerView(PHOTO_FEED_VIEW_TYPE, (leaf) => new PhotoFeedView(leaf, this));
 
@@ -84,7 +91,10 @@ export default class PhotoFeedPlugin extends Plugin {
     );
     this.registerEvent(
       this.app.vault.on("delete", (f) => {
+        // 删文件夹时 Obsidian 只发一次 delete 事件（对象是 TFolder），
+        // 不逐个子文件回调 —— 只接住 TFile 会让整个文件夹的照片留在索引里。
         if (f instanceof TFile) this.indexer.handleDelete(f);
+        else if (f instanceof TFolder) this.indexer.handleDeleteFolder(f.path);
       })
     );
     this.registerEvent(
@@ -122,16 +132,23 @@ export default class PhotoFeedPlugin extends Plugin {
     }
   }
 
+  /**
+   * 打开 / 前置视界视图。
+   *
+   * 这里用 setActiveLeaf（0.16.3 起就有）而不是 revealLeaf —— 后者的类型签名标注
+   * @since 1.7.2，而 minAppVersion 是 1.5.0，用它会被社区审核判为
+   * 「使用了高于 minAppVersion 的 API」；换用 setActiveLeaf 就不必抬高最低版本要求。
+   */
   async activateView(): Promise<void> {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(PHOTO_FEED_VIEW_TYPE);
     if (existing.length) {
-      await workspace.revealLeaf(existing[0]);
+      workspace.setActiveLeaf(existing[0], { focus: true });
       return;
     }
     const leaf = workspace.getLeaf(true);
     await leaf.setViewState({ type: PHOTO_FEED_VIEW_TYPE, active: true });
-    await workspace.revealLeaf(leaf);
+    workspace.setActiveLeaf(leaf, { focus: true });
   }
 
   /** 打开发布弹窗（Ribbon / 命令 / 视图右下角按钮都走这里） */
@@ -188,10 +205,17 @@ export default class PhotoFeedPlugin extends Plugin {
     await this.saveData({ settings: this.settings, index: this.indexer.index });
   }
 
-  /** 索引落盘；notify 仅在内容真正变化时为 true */
-  async persistIndex(index: FeedIndex, notify = true): Promise<void> {
+  /**
+   * 索引落盘。
+   *  - notify = false       内容没变，只落盘不惊动视图
+   *  - notify = true        常规变更（新增 / 修改）→ 视图按滚动位置决定刷新或提示
+   *  - notify = "removal"   只删不增的变更 → 强制重渲染，别按「有新照片」的礼貌策略压住，
+   *                         否则删掉原 md 后首页里的照片还挂在原地
+   */
+  async persistIndex(index: FeedIndex, notify: boolean | "removal" = true): Promise<void> {
     await this.saveData({ settings: this.settings, index });
-    if (notify) this.notifyIndexChanged("index");
+    if (notify === false) return;
+    this.notifyIndexChanged(notify === "removal" ? "settings" : "index");
   }
 
   onIndexChanged(fn: (source: "settings" | "index") => void): void {

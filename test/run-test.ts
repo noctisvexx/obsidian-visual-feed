@@ -140,10 +140,14 @@ const settings = {
   groupBy: "record" as const,
   captionChars: 220,
 };
+/** 记录每次落盘时的 notify 取值（false 时视图不会刷新） */
+const persistCalls: { notify: boolean | "removal" }[] = [];
 const plugin = {
   app,
   settings,
-  persistIndex: async (): Promise<void> => undefined,
+  persistIndex: async (_index: unknown, notify: boolean | "removal" = true): Promise<void> => {
+    persistCalls.push({ notify });
+  },
 };
 
 let failed = 0;
@@ -319,10 +323,82 @@ async function main(): Promise<void> {
   check("索引条数回到原值", indexer.getPosts().length === postsBefore);
 
   // 删除
+  const beforeDelete = persistCalls.length;
   app.vault.removeExtra(synth);
   indexer.handleDelete(new TFile(synth, { mtime: 1, size: 1 }));
   await sleep(500);
   check("删除文件后不残留", indexer.getPosts().filter((p) => p.file === synth).length === 0);
+  check(
+    "删除文件后索引里不再记录该路径",
+    !Object.prototype.hasOwnProperty.call(indexer.index.files, synth)
+  );
+  // 回归：删除只会「清索引」、不产生待解析路径，落盘必须照样发生，
+  // 否则首页里的旧照片一直挂着不消失（曾因 flush 只看 pendingPaths 而漏掉）。
+  const deleteCalls = persistCalls.slice(beforeDelete);
+  check("删除文件会触发落盘", deleteCalls.length >= 1, `实际 ${deleteCalls.length} 次`);
+  check(
+    "删除文件的落盘带 removal（视图强制刷新，不被滚动礼貌策略压住）",
+    deleteCalls.some((c) => c.notify === "removal"),
+    JSON.stringify(deleteCalls.map((c) => c.notify))
+  );
+
+  // 改名 / 移到来源目录之外：旧路径的记录必须清掉并落盘
+  app.vault.upsertExtra(synth, synthBody);
+  indexer.handleChange(app.vault.getAbstractFileByPath(synth) as TFile);
+  await sleep(500);
+  check("改名前文件已回到索引", indexer.getPosts().filter((p) => p.file === synth).length === 1);
+  app.vault.removeExtra(synth);
+  const savedSources = settings.sources;
+  settings.sources = []; // 模拟「改到不再属于任何来源目录」
+  const beforeRename = persistCalls.length;
+  indexer.handleRename(new TFile("9999-moved.md", { mtime: 2, size: 2 }), synth);
+  await sleep(500);
+  settings.sources = savedSources;
+  check("移出来源目录后旧记录被清除", indexer.getPosts().filter((p) => p.file === synth).length === 0);
+  check(
+    "移出来源目录后索引里不再记录旧路径",
+    !Object.prototype.hasOwnProperty.call(indexer.index.files, synth)
+  );
+  const renameCalls = persistCalls.slice(beforeRename);
+  check(
+    "移出来源目录会落盘并强制刷新视图",
+    renameCalls.some((c) => c.notify === "removal"),
+    JSON.stringify(renameCalls.map((c) => c.notify))
+  );
+
+  // 删除整个文件夹（Obsidian 对文件夹只发一次 delete 事件）
+  const folder = `${sources[0].path}/vf-tmp-folder`;
+  const folderA = `${folder}/a.md`;
+  const folderB = `${folder}/b.md`;
+  app.vault.upsertExtra(folderA, synthBody);
+  app.vault.upsertExtra(folderB, synthBody);
+  indexer.handleChange(app.vault.getAbstractFileByPath(folderA) as TFile);
+  indexer.handleChange(app.vault.getAbstractFileByPath(folderB) as TFile);
+  await sleep(500);
+  check(
+    "文件夹内两篇都进了索引",
+    indexer.getPosts().filter((p) => p.file === folderA).length === 1 &&
+      indexer.getPosts().filter((p) => p.file === folderB).length === 1
+  );
+  const beforeFolder = persistCalls.length;
+  app.vault.removeExtra(folderA);
+  app.vault.removeExtra(folderB);
+  indexer.handleDeleteFolder(folder);
+  await sleep(500);
+  check(
+    "删除文件夹后目录内记录全部清除",
+    indexer.getPosts().filter((p) => p.file === folderA || p.file === folderB).length === 0
+  );
+  check(
+    "删除文件夹后索引里不再有该目录条目",
+    !Object.keys(indexer.index.files).some((p) => p.startsWith(folder + "/"))
+  );
+  const folderCalls = persistCalls.slice(beforeFolder);
+  check(
+    "删除文件夹会落盘并强制刷新视图",
+    folderCalls.some((c) => c.notify === "removal"),
+    JSON.stringify(folderCalls.map((c) => c.notify))
+  );
 
   // ───────── 4. 图片文件变化 → 只重解析引用它的 Markdown ─────────
   const samplePhoto = posts.flatMap((p) => p.photos).find((ph) => !ph.remote);
@@ -1191,6 +1267,51 @@ async function main(): Promise<void> {
       /\.pf-panel-foot\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*space-between/.test(css) &&
         /\.pf-settings-btn\s*\{[^}]*color:\s*var\(--text-muted\)/.test(css) &&
         /\.pf-settings-btn:hover\s*\{[^}]*var\(--background-modifier-hover\)/.test(css)
+    );
+
+    // ── 原生全屏：完整显示视频，不裁切 ──
+    // 背景：Feed 的封面裁剪策略会给 .pf-video 打上 object-fit: cover（限范围 / 统一比例 /
+    //       网格布局），视频进原生全屏后该规则依然生效 → 画面被放大裁掉。全屏时须一律 contain。
+    //       社区审核不允许 !important，所以改成「与裁剪规则同层级 + 叠加 :fullscreen 提权」：
+    //       .pf-media.pf-cover .pf-video (0,3,0)          → (0,4,0)
+    //       .pf-feed-inner.pf-grid .pf-media .pf-video (0,4,0) → (0,5,0)
+    const fullscreenRule =
+      /\.pf-media\.pf-cover\s+\.pf-video:fullscreen[\s\S]*?\}/.exec(css)?.[0] ?? "";
+    check(
+      "全屏时用 contain 且不带 !important（靠选择器权重压过封面 cover），-webkit 前缀一并覆盖",
+      /object-fit:\s*contain/.test(fullscreenRule) &&
+        !/!important/.test(fullscreenRule) &&
+        /\.pf-feed-inner\.pf-grid\s+\.pf-media\s+\.pf-video:fullscreen/.test(fullscreenRule) &&
+        /\.pf-video:-webkit-full-screen/.test(fullscreenRule) &&
+        !/(^|[,\s])video:fullscreen/.test(fullscreenRule),
+      fullscreenRule.replace(/\s+/g, " ").trim()
+    );
+    check(
+      "Lightbox 视频（.pf-lb-video）全屏同样兜底 contain",
+      /\.pf-lb-video:fullscreen/.test(fullscreenRule) &&
+        /\.pf-lb-video:-webkit-full-screen/.test(fullscreenRule)
+    );
+    check(
+      "封面 cover 规则未被顺手改掉：Feed「限制范围 / 统一比例」与网格仍是 cover",
+      /\.pf-media\.pf-cover\s+\.pf-video\s*\{[^}]*object-fit:\s*cover/.test(css) &&
+        /\.pf-feed-inner\.pf-grid\s+\.pf-media\s+\.pf-video\s*\{[^}]*object-fit:\s*cover/.test(css)
+    );
+
+    // ── 社区审核合规：样式里不留 !important ──
+    // 审核会给「Avoid !important」告警。上面几处原本都靠 !important 压权重，
+    // 现在改用提高选择器权重的方式，这里把这条约束钉死，防止以后又被写回来。
+    check("styles.css 里没有任何 !important 声明（社区审核会告警）", !/!important\s*;/.test(css));
+    check(
+      "内容区去内边距改成叠 .view-content 提权（不用 !important）",
+      /\.view-content\.pf-view-content\s*\{[^}]*padding:\s*0/.test(css) &&
+        /\.workspace-leaf-content\s+\.view-content\.pf-view-content\s*\{[^}]*overflow:\s*hidden/.test(
+          css
+        )
+    );
+    check(
+      "轮播到头的箭头：hover 态也藏起来，且不用 !important",
+      /\.pf-media:hover\s+\.pf-arrow\.pf-arrow-off\s*\{[^}]*opacity:\s*0/.test(css) &&
+        /\.pf-arrow\.pf-arrow-off\s*\{[^}]*pointer-events:\s*none/.test(css)
     );
   }
 

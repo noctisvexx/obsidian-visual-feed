@@ -315,6 +315,9 @@ export class Workspace {
   getLeavesOfType(): unknown[] {
     return [];
   }
+  setActiveLeaf(): void {
+    /* 测试里不需要真的切换活动页 */
+  }
   revealLeaf(): Promise<void> {
     return Promise.resolve();
   }

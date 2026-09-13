@@ -5,9 +5,13 @@
    ============================================================ */
 
 /* ── 视图容器 ── */
-.pf-view-content {
-  padding: 0 !important;
-  overflow: hidden !important;
+/* 内容区完全交给插件自己排版（滚动的责任在 .pf-root）。
+   Obsidian 默认给 .view-content 留了内边距、还带滚动，
+   这里不用 !important，改成叠上 Obsidian 自己的 .view-content 类来提高权重。 */
+.view-content.pf-view-content,
+.workspace-leaf-content .view-content.pf-view-content {
+  padding: 0;
+  overflow: hidden;
 }
 
 .pf-root {
@@ -99,11 +103,12 @@
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
-  scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
 }
 
+/* 隐藏轮播的滚动条（Chromium / WebKit 走这条；
+   没用 scrollbar-width —— 那个属性在 Obsidian 内嵌的旧 Chromium 上只是部分支持） */
 .pf-track::-webkit-scrollbar {
   display: none;
 }
@@ -154,6 +159,28 @@
   display: block;
   background: #000;
   -webkit-user-drag: none;
+}
+
+/* 原生全屏：完整显示视频，绝不裁切。
+   Feed 的封面裁剪策略（限制范围 / 统一比例 / 网格布局）会给 .pf-video 打上
+   object-fit: cover —— 那是给缩略框用的；但视频进入原生全屏（浏览器播放器自带的
+   全屏按钮）后元素被提到顶层、尺寸变成整个视口，这两条 cover 规则却依然生效，
+   于是画面被放大填满并裁掉边缘。全屏时一律 contain，让视频完整显示。
+   只作用于「真正全屏」这一状态：Feed 卡片、轮播、Lightbox、图片全屏、网格布局
+   的现有行为一律不变。
+
+   不用 !important：全屏元素仍在原 DOM 位置上（只是被提到顶层渲染），所以能把
+   选择器写到与要覆盖的裁剪规则同层级、再叠加 :fullscreen 提权 ——
+     .pf-media.pf-cover .pf-video (0,3,0)          → 这里 (0,4,0)
+     .pf-feed-inner.pf-grid .pf-media .pf-video (0,4,0) → 这里 (0,5,0)
+   Lightbox 里的 .pf-lb-video 不在 .pf-media 里、本来就没有 cover 规则，保持原样。 */
+.pf-media.pf-cover .pf-video:fullscreen,
+.pf-media.pf-cover .pf-video:-webkit-full-screen,
+.pf-feed-inner.pf-grid .pf-media .pf-video:fullscreen,
+.pf-feed-inner.pf-grid .pf-media .pf-video:-webkit-full-screen,
+.pf-lb-video:fullscreen,
+.pf-lb-video:-webkit-full-screen {
+  object-fit: contain;
 }
 
 .pf-video-expand {
@@ -270,9 +297,15 @@
   opacity: 1;
 }
 
-.pf-arrow-off {
-  opacity: 0 !important;
+/* 到头 / 到尾的箭头：hover 也不显示。
+   不用 !important —— 上面那条 .pf-media:hover .pf-arrow 权重 (0,3,0)，
+   这里以同层级再加上 .pf-arrow-off 一个类压过去（(0,4,0)）。 */
+.pf-arrow.pf-arrow-off {
   pointer-events: none;
+}
+
+.pf-media:hover .pf-arrow.pf-arrow-off {
+  opacity: 0;
 }
 
 /* ── 正文 / 底部信息 ── */

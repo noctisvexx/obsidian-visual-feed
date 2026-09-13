@@ -146,7 +146,7 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 **373** 项断言：
+两套测试，加起来 **390** 项断言（`run-test` 221 + `run-dom-test` 169）：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
 - **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页动态重绘。
@@ -164,6 +164,26 @@ npm test        # 打包测试 + 跑端到端测试
 >
 > **来源文件夹也不用配**：测试会在运行时从那个库里就地挑几个 md 最多的目录当来源
 > （并顺带探测文件里用的时间戳格式），所以仓库里不含任何真实目录名。
+
+### 发布
+
+Release 附件（`main.js` / `manifest.json` / `styles.css`）由 GitHub Actions 构建并附带
+**构件来源证明**（artifact attestation，Sigstore 签名）—— 这是社区市场审核的硬性建议，
+任何人都可以验证附件确实来自某个 tag 的源码：
+
+```bash
+gh attestation verify main.js --owner noctisvexx
+```
+
+发布步骤：
+
+1. 改 `manifest.json` / `package.json` / `versions.json` 里的版本号（补丁位递推）
+2. `git commit && git push`
+3. `git tag 1.6.4 && git push origin 1.6.4` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
+4. workflow 自动构建 → 背书 → 上传三个附件（Release 不存在就自动建一个）
+5. 补发布说明：`gh release edit 1.6.4 --notes "..."`
+
+本地 `npm run build` 只用于测试和塞进 Vault，不再是分发来源。
 
 ---
 
@@ -325,7 +345,7 @@ npm test        # bundle the tests + run the end-to-end suite
 
 #### Tests
 
-Two suites, **373** assertions in total:
+Two suites, **390** assertions in total (`run-test` 221 + `run-dom-test` 169):
 
 - **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
 - **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, settings-page re-rendering.
@@ -344,6 +364,26 @@ Every **write in both suites goes through an in-memory overlay** — your real n
 > **No source folders to configure either**: the suite picks a few of the vault's
 > markdown-heaviest directories at runtime (detecting their record style on the way),
 > so the repository contains no real folder names.
+
+#### Releasing
+
+The release assets (`main.js` / `manifest.json` / `styles.css`) are built by GitHub Actions
+together with a **build provenance attestation** (Sigstore-signed) — the community-directory
+review recommends this, and anyone can verify that an asset really came from a tag's source:
+
+```bash
+gh attestation verify main.js --owner noctisvexx
+```
+
+To release:
+
+1. Bump the version in `manifest.json` / `package.json` / `versions.json` (patch digit only)
+2. `git commit && git push`
+3. `git tag 1.6.4 && git push origin 1.6.4` — the **tag must match `manifest.json`'s `version` exactly, with no `v` prefix** (the directory enforces this; `.github/workflows/release.yml` checks it first and fails fast)
+4. The workflow builds → attests → uploads the three assets (creating the release if needed)
+5. Add release notes: `gh release edit 1.6.4 --notes "..."`
+
+A local `npm run build` is for testing and sideloading into your vault — it is no longer the distribution source.
 
 ---
 

@@ -9,9 +9,6 @@ import {
 } from "obsidian";
 import type PhotoFeedPlugin from "./main";
 import type {
-  FeedLayout,
-  GridTileSize,
-  GridUnit,
   MediaRatioMode,
   PhotoFeedSettings,
   SourceFolder,
@@ -215,6 +212,22 @@ export class FolderPickerModal extends FuzzySuggestModal<TFolder> {
   }
 }
 
+/**
+ * 把按钮标成「破坏性操作」。
+ * setDestructive 是 1.13.0 才加的 API（当前 minAppVersion 是 1.5.0，直接调用会被社区审核
+ * 判为「用了高于 minAppVersion 的 API」），所以做一次运行时探测：
+ * 新版走 setDestructive，旧版退回语义等价的 setWarning。
+ */
+type DestructiveButton = {
+  setDestructive?: () => unknown;
+  setWarning?: () => unknown;
+};
+
+function markDestructive(btn: DestructiveButton): void {
+  if (typeof btn.setDestructive === "function") btn.setDestructive();
+  else btn.setWarning?.();
+}
+
 export class PhotoFeedSettingTab extends PluginSettingTab {
   plugin: PhotoFeedPlugin;
 
@@ -223,6 +236,12 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  /**
+   * 设置页是命令式渲染的（display）。
+   * display 自 1.13.0 起被标记为 deprecated，但官方文档写得很清楚：只有在需要兼容
+   * 1.13.0 以下版本时才继续实现 display()。本插件 minAppVersion 是 1.5.0，
+   * 所以保留命令式实现 —— 代价是 1.13+ 的设置搜索里搜不到这些设置项。
+   */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -467,7 +486,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           .addOption("grid", "网格瀑布流")
           .setValue(this.plugin.settings.layoutMode)
           .onChange(async (v) => {
-            this.plugin.settings.layoutMode = (v === "grid" ? "grid" : "feed") as FeedLayout;
+            this.plugin.settings.layoutMode = v === "grid" ? "grid" : "feed";
             await this.plugin.saveSettings();
             this.plugin.notifyIndexChanged("settings");
           })
@@ -483,7 +502,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           .addOption("large", "大")
           .setValue(this.plugin.settings.gridTileSize)
           .onChange(async (v) => {
-            const size = (v === "small" || v === "large" ? v : "medium") as GridTileSize;
+            const size = v === "small" || v === "large" ? v : "medium";
             this.plugin.settings.gridTileSize = size;
             await this.plugin.saveSettings();
             this.plugin.notifyIndexChanged("settings");
@@ -502,7 +521,7 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
           .addOption("post", "每条记录一格")
           .setValue(this.plugin.settings.gridUnit)
           .onChange(async (v) => {
-            this.plugin.settings.gridUnit = (v === "post" ? "post" : "photo") as GridUnit;
+            this.plugin.settings.gridUnit = v === "post" ? "post" : "photo";
             await this.plugin.saveSettings();
             this.plugin.notifyIndexChanged("settings");
           })
@@ -534,7 +553,6 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
         s
           .setLimits(5, 40, 1)
           .setValue(this.plugin.settings.pageSize)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             this.plugin.settings.pageSize = v;
             await this.plugin.saveSettings();
@@ -549,7 +567,6 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
         s
           .setLimits(40, 90, 2)
           .setValue(this.plugin.settings.imageMaxHeight)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             this.plugin.settings.imageMaxHeight = v;
             await this.plugin.saveSettings();
@@ -651,7 +668,6 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
         s
           .setLimits(40, 600, 20)
           .setValue(this.plugin.settings.captionChars)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             this.plugin.settings.captionChars = v;
             await this.plugin.saveSettings();
@@ -715,22 +731,20 @@ export class PhotoFeedSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("重建索引")
       .setDesc("清空现有索引并重新扫描全部来源文件夹。来源目录变更后会自动重建，一般无需手动操作。")
-      .addButton((b) =>
-        b
-          .setButtonText("重建索引")
-          .setWarning()
-          .onClick(async () => {
-            b.setDisabled(true);
-            try {
-              await this.plugin.rebuildIndex();
-              this.display();
-            } catch (e) {
-              console.error(e);
-            } finally {
-              b.setDisabled(false);
-            }
-          })
-      );
+      .addButton((b) => {
+        markDestructive(b);
+        return b.setButtonText("重建索引").onClick(async () => {
+          b.setDisabled(true);
+          try {
+            await this.plugin.rebuildIndex();
+            this.display();
+          } catch (e) {
+            console.error(e);
+          } finally {
+            b.setDisabled(false);
+          }
+        });
+      });
   }
 
   /**
