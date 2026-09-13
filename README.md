@@ -189,7 +189,7 @@ gh attestation verify main.js --owner noctisvexx
 
 1. 改 `manifest.json` / `package.json` / `versions.json` 里的版本号（补丁位递推）
 2. `git commit && git push`
-3. `git tag 1.6.5 && git push origin 1.6.5` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
+3. `git tag 1.6.6 && git push origin 1.6.6` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
 4. workflow 自动构建 → 背书 → 上传三个附件（Release 不存在就自动建一个）
 5. 补发布说明：`gh release edit 1.6.5 --notes "..."`
 
@@ -398,7 +398,7 @@ To release:
 
 1. Bump the version in `manifest.json` / `package.json` / `versions.json` (patch digit only)
 2. `git commit && git push`
-3. `git tag 1.6.5 && git push origin 1.6.5` — the **tag must match `manifest.json`'s `version` exactly, with no `v` prefix** (the directory enforces this; `.github/workflows/release.yml` checks it first and fails fast)
+3. `git tag 1.6.6 && git push origin 1.6.6` — the **tag must match `manifest.json`'s `version` exactly, with no `v` prefix** (the directory enforces this; `.github/workflows/release.yml` checks it first and fails fast)
 4. The workflow builds → attests → uploads the three assets (creating the release if needed)
 5. Add release notes: `gh release edit 1.6.5 --notes "..."`
 
