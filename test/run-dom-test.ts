@@ -15,7 +15,7 @@ import { setupDom, tick } from "./dom-harness";
 
 const env = setupDom();
 
-import { App, renderSettingTab, TFile } from "./obsidian-mock";
+import { App, renderSettingTab, resetLocalStorage, TFile } from "./obsidian-mock";
 import { Carousel } from "../src/components/Carousel";
 import { buildPostCard } from "../src/components/PostCard";
 import { Feed } from "../src/components/Feed";
@@ -795,7 +795,7 @@ async function main(): Promise<void> {
       `openSettings 调用 ${pluginStub.settingsOpened} 次`
     );
 
-    // ── 来源 chips：跟着数据里的来源走，不写死任何来源名 ──
+    // ── 来源 chips：跟着数据里的来源走，不写死任何来源名；多选取并集 ──
     const chipLabels = (): string[] =>
       Array.from(root.querySelectorAll(".pf-filter-panel .pf-chip")).map(
         (c) => (c as HTMLElement).textContent ?? ""
@@ -806,6 +806,10 @@ async function main(): Promise<void> {
       ) as HTMLElement;
       el.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
     };
+    const activeChips = (): string[] =>
+      Array.from(root.querySelectorAll(".pf-filter-panel .pf-chip"))
+        .filter((c) => (c as HTMLElement).classList.contains("pf-chip-active"))
+        .map((c) => (c as HTMLElement).textContent ?? "");
 
     check(
       "来源 chips 用数据里的来源名（全部 + 两个来源，没有写死的类型名）",
@@ -817,27 +821,69 @@ async function main(): Promise<void> {
       chipLabels().join(" / ")
     );
 
+    check(
+      "默认一个来源都没选 → 只有「全部」高亮",
+      activeChips().length === 1 && activeChips()[0] === "全部",
+      activeChips().join(" / ")
+    );
+
     pickChip("绘画记录");
     await tick(0);
     check(
-      "点来源 chip 只留该来源的记录",
+      "选一个来源只留该来源的记录",
       root.querySelectorAll(".pf-post").length === 1,
       `${root.querySelectorAll(".pf-post").length}`
     );
     check("来源筛选生效时筛选按钮带小圆点", !!root.querySelector(".pf-fab-filter .pf-fab-dot"));
 
-    pickChip("全部");
+    pickChip("个人记录");
     await tick(0);
     check(
-      "点回「全部」恢复两条",
+      "再选一个来源 = 并集（两个来源的记录都留下）",
       root.querySelectorAll(".pf-post").length === 2,
       `${root.querySelectorAll(".pf-post").length}`
     );
+    check(
+      "多选时「全部」不再高亮、两个来源同时高亮（不塌缩成「全部」）",
+      activeChips().length === 2 &&
+        activeChips().includes("个人记录") &&
+        activeChips().includes("绘画记录") &&
+        !activeChips().includes("全部"),
+      activeChips().join(" / ")
+    );
 
-    // 只剩一个来源时：整排隐藏，并把筛选退回「全部」
     pickChip("绘画记录");
     await tick(0);
-    viewPosts[0].src = "绘画记录";
+    check(
+      "再点一下取消该来源，只剩另一个",
+      root.querySelectorAll(".pf-post").length === 1 &&
+        activeChips().length === 1 &&
+        activeChips()[0] === "个人记录",
+      `${root.querySelectorAll(".pf-post").length} 条 / ${activeChips().join(" / ")}`
+    );
+
+    pickChip("全部");
+    await tick(0);
+    check(
+      "点「全部」清空已选：恢复两条、高亮回到「全部」、小圆点消失",
+      root.querySelectorAll(".pf-post").length === 2 &&
+        activeChips().length === 1 &&
+        activeChips()[0] === "全部" &&
+        !root.querySelector(".pf-fab-filter .pf-fab-dot"),
+      `${root.querySelectorAll(".pf-post").length} 条 / ${activeChips().join(" / ")}`
+    );
+
+    // 只剩一个来源时：整排隐藏，并把已选里失效的名字一并清掉
+    pickChip("绘画记录");
+    await tick(0);
+    pickChip("个人记录");
+    await tick(0);
+    check(
+      "两个来源都选上（准备验证来源塌缩后已选被清空）",
+      activeChips().length === 2,
+      activeChips().join(" / ")
+    );
+    viewPosts[0].src = "绘画记录"; // 两个来源塌缩成一个 → 已选里的「个人记录」失效
     view.render();
     await tick(0);
     check(
@@ -847,9 +893,107 @@ async function main(): Promise<void> {
       ) && root.querySelectorAll(".pf-filter-panel .pf-chip").length === 0
     );
     check(
-      "来源消失后筛选自动退回「全部」（按钮小圆点跟着消失，不会空着不显示内容）",
+      "来源塌缩后筛选自动清空（按钮小圆点跟着消失，不会空着不显示内容）",
       root.querySelectorAll(".pf-post").length === 2 &&
         !root.querySelector(".pf-fab-filter .pf-fab-dot")
+    );
+
+    // ── 筛选状态的记忆：写进设备本地存储，重建视图（≈ 重启）后还在 ──
+    resetLocalStorage();
+    viewPosts[0].src = "个人记录"; // 还原成两个来源
+    view.render();
+    await tick(0);
+    pickChip("个人记录");
+    await tick(0);
+    pickChip("绘画记录");
+    await tick(0);
+
+    const stored = (app: App): { srcs: string[]; year: string; from: string; to: string } =>
+      app.loadLocalStorage("visual-feed:filter") as {
+        srcs: string[];
+        year: string;
+        from: string;
+        to: string;
+      };
+
+    check(
+      "选中的来源立刻被写进设备本地存储（不写 data.json —— 那里面有索引，几 MB）",
+      JSON.stringify(stored(app4).srcs) === JSON.stringify(["个人记录", "绘画记录"]),
+      JSON.stringify(stored(app4).srcs)
+    );
+
+    // 再 new 一个 App + 视图 = 模拟「重启 Obsidian」：本地存储是同一份
+    const app5 = new App(VAULT_ROOT);
+    const view2 = new PhotoFeedView({ app: app5 } as never, pluginStub as never);
+    await view2.onOpen();
+    const root2 = view2.contentEl;
+    const activeChips2 = (): string[] =>
+      Array.from(root2.querySelectorAll(".pf-filter-panel .pf-chip-active")).map(
+        (c) => (c as HTMLElement).textContent ?? ""
+      );
+    check(
+      "重启后来源多选被恢复：两个 chip 仍然同时高亮",
+      activeChips2().length === 2 &&
+        activeChips2().includes("个人记录") &&
+        activeChips2().includes("绘画记录"),
+      activeChips2().join(" / ")
+    );
+    check(
+      "重启后筛选真的生效（内容仍是两个来源的并集）",
+      root2.querySelectorAll(".pf-post").length === 2,
+      `${root2.querySelectorAll(".pf-post").length}`
+    );
+
+    // 起止日期也跟着记（年份那栏由索引里真实存在的年份兜底，单独测日期更稳）
+    const app5b = new App(VAULT_ROOT);
+    app5b.saveLocalStorage("visual-feed:filter", {
+      srcs: [],
+      year: "all",
+      from: "2026-01-01",
+      to: "2026-12-31",
+    });
+    const view2c = new PhotoFeedView({ app: app5b } as never, pluginStub as never);
+    await view2c.onOpen();
+    const dateInputs = Array.from(
+      view2c.contentEl.querySelectorAll<HTMLInputElement>(".pf-date")
+    );
+    check(
+      "起止日期也一起记住（恢复后输入框里就是上次的值）",
+      dateInputs[0]?.value === "2026-01-01" && dateInputs[1]?.value === "2026-12-31",
+      dateInputs.map((i) => i.value).join(" ~ ")
+    );
+
+    // 存储里塞了已失效的来源名 → 恢复时剔除，并顺手写回存储
+    app5.saveLocalStorage("visual-feed:filter", {
+      srcs: ["已经不存在的来源", "绘画记录"],
+      year: "all",
+      from: "",
+      to: "",
+    });
+    const app6 = new App(VAULT_ROOT);
+    const view3 = new PhotoFeedView({ app: app6 } as never, pluginStub as never);
+    await view3.onOpen();
+    check(
+      "存储里的失效来源在恢复时被剔除，只剩有效项（不崩）",
+      JSON.stringify(stored(app6).srcs) === JSON.stringify(["绘画记录"]),
+      JSON.stringify(stored(app6).srcs)
+    );
+    check(
+      "剔除后仍留着那个有效来源：内容只剩它、小圆点还在",
+      view3.contentEl.querySelectorAll(".pf-post").length === 1 &&
+        !!view3.contentEl.querySelector(".pf-fab-filter .pf-fab-dot")
+    );
+
+    // 点「重置筛选」→ 存储一起清，否则下次重启又冒出来
+    (root2.querySelector(".pf-reset") as HTMLElement).dispatchEvent(
+      new env.window.MouseEvent("click", { bubbles: true })
+    );
+    await tick(0);
+    check(
+      "点「重置筛选」后存储里的已选也清空（不会下次重启又冒出来）",
+      JSON.stringify(stored(app5).srcs) === "[]" &&
+        root2.querySelectorAll(".pf-filter-panel .pf-chip-active").length === 1,
+      JSON.stringify(stored(app5).srcs)
     );
 
     // 点按钮 → 展开

@@ -291,6 +291,18 @@ export class MetadataCache {
   }
 }
 
+/**
+ * 模拟 Obsidian 的「设备本地存储」（`App.saveLocalStorage` / `loadLocalStorage`，@since 1.8.7）。
+ * **跨 App 实例共享**：测试里再 `new App()` 一次就等价于「重启 Obsidian」，用来验证状态记忆。
+ * 落盘走一次 JSON 往返 —— 真实环境也是序列化存的，顺便验证写进去的是可序列化的普通对象。
+ */
+const localStore = new Map<string, string>();
+
+/** 清空模拟的本地存储（测试之间隔离） */
+export function resetLocalStorage(): void {
+  localStore.clear();
+}
+
 export class App {
   vault: Vault;
   metadataCache: MetadataCache;
@@ -300,6 +312,17 @@ export class App {
     this.vault = new Vault(root);
     this.metadataCache = new MetadataCache(this.vault);
     this.workspace = new Workspace(this);
+  }
+
+  /** @since 1.8.7 */
+  loadLocalStorage(key: string): unknown {
+    const raw = localStore.get(key);
+    return raw === undefined ? null : JSON.parse(raw);
+  }
+
+  /** @since 1.8.7 */
+  saveLocalStorage(key: string, data: unknown): void {
+    localStore.set(key, JSON.stringify(data ?? null));
   }
 }
 

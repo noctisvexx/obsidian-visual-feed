@@ -1302,6 +1302,15 @@ async function main(): Promise<void> {
     // 现在改用提高选择器权重的方式，这里把这条约束钉死，防止以后又被写回来。
     check("styles.css 里没有任何 !important 声明（社区审核会告警）", !/!important\s*;/.test(css));
     check(
+      "来源 chip 选中态整块填充 accent：靠 .pf-filter-panel .pf-chips 提权，压过 Obsidian 的 button 默认底色",
+      /\.pf-filter-panel\s+\.pf-chips\s+\.pf-chip\.pf-chip-active\s*[,{]/.test(css) &&
+        /\.pf-chip\.pf-chip-active:hover\s*\{[^}]*background:\s*var\(--interactive-accent\)/.test(css)
+    );
+    check(
+      "来源 chip 未选中态同样提权为透明底（否则按钮默认灰底会让「选中」只差一圈边框）",
+      /\.pf-filter-panel\s+\.pf-chips\s+\.pf-chip\s*\{[^}]*background:\s*transparent/.test(css)
+    );
+    check(
       "内容区去内边距改成叠 .view-content 提权（不用 !important）",
       /\.view-content\.pf-view-content\s*\{[^}]*padding:\s*0/.test(css) &&
         /\.workspace-leaf-content\s+\.view-content\.pf-view-content\s*\{[^}]*overflow:\s*hidden/.test(

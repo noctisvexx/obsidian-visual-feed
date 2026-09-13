@@ -588,19 +588,29 @@
   font-family: var(--font-interface);
   cursor: pointer;
   line-height: 1.5;
+  box-shadow: none;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
-.pf-chip:hover {
+/* ⚠️ 这三条必须带 `.pf-filter-panel .pf-chips` 前缀提权，不能只写 `.pf-chip*`：
+   Obsidian 内置的 `button:not(.clickable-icon)` 是 0-1-1，比单个类（0-1-0）高，
+   会把 background 顶回 `--interactive-normal`（按钮默认灰底）—— 结果就是
+   「选中了只看到一圈细边框、底色没变」，看不出到底选没选中。
+   社区审核不允许 !important，只能靠选择器层级压过去。 */
+.pf-filter-panel .pf-chips .pf-chip {
+  background: transparent;
+}
+
+.pf-filter-panel .pf-chips .pf-chip:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.pf-chip-active,
-.pf-chip-active:hover {
+.pf-filter-panel .pf-chips .pf-chip.pf-chip-active,
+.pf-filter-panel .pf-chips .pf-chip.pf-chip-active:hover {
   background: var(--interactive-accent);
   border-color: var(--interactive-accent);
-  color: var(--text-on-accent);
+  color: var(--text-on-accent, #fff);
 }
 
 .pf-filters {

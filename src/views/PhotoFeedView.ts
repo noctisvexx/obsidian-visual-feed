@@ -11,18 +11,28 @@ export const PHOTO_FEED_VIEW_TYPE = "photo-feed";
 
 /**
  * 筛选状态。
- *  - src："all" 或某个来源的显示名（= Post.src，就是设置页里配的显示名称）
+ *  - srcs：已选来源的显示名（= Post.src，就是设置页里配的显示名称）。
+ *    **空数组 = 全部**（不按来源筛）；多个是并集。这也是「一个都不选 = 全部」的由来。
  *  - year："all" 或 "YYYY"
  *  - from/to：起始/结束日期 "YYYY-MM-DD"，空串表示不限
  */
 interface FilterState {
-  src: string;
+  srcs: string[];
   year: string;
   from: string;
   to: string;
 }
 
-const NO_FILTER: FilterState = { src: "all", year: "all", from: "", to: "" };
+/** 每次都返回全新的对象 / 数组：srcs 会被就地改写，不能共享常量里的那一份。 */
+const freshFilter = (): FilterState => ({ srcs: [], year: "all", from: "", to: "" });
+
+/**
+ * 筛选状态的存储位置：**设备本地存储**（`App.saveLocalStorage`，@since 1.8.7），
+ * 不放 `data.json` —— 那里面有整个索引（几 MB），点一下筛选就写一次盘太亏。
+ * 本地存储是**立即写入**的，所以重启 Obsidian、重载插件、关掉标签页再打开都还在。
+ * key 带插件前缀，避免和其它插件撞。
+ */
+const FILTER_STORE_KEY = "visual-feed:filter";
 
 /**
  * 视界视图：
@@ -50,7 +60,7 @@ export class PhotoFeedView extends ItemView {
   private feed!: Feed;
   private built = false;
   private currentPosts: FeedPost[] = [];
-  private filter: FilterState = { ...NO_FILTER };
+  private filter: FilterState = freshFilter();
   private indexListener = (source: "settings" | "index"): void => this.onIndexChanged(source);
 
   constructor(leaf: WorkspaceLeaf, plugin: PhotoFeedPlugin) {
@@ -73,6 +83,8 @@ export class PhotoFeedView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.empty();
     this.contentEl.addClass("pf-view-content");
+    // 先恢复上次的筛选，再建 DOM：chips 是在 buildFilterPanel 里按 filter 生成的
+    this.filter = this.loadFilter();
     this.buildSkeleton();
 
     this.feed = new Feed(
@@ -176,7 +188,7 @@ export class PhotoFeedView extends ItemView {
     });
     this.yearSel.addEventListener("change", () => {
       this.filter.year = this.yearSel.value;
-      this.render();
+      this.applyFilter();
     });
 
     this.fromInput = filters.createEl("input", {
@@ -188,11 +200,14 @@ export class PhotoFeedView extends ItemView {
       cls: "pf-date",
       attr: { type: "date", "aria-label": "结束日期" },
     });
+    // 上次筛的日期区间也要带回来（控件是受控的，得手动赋初值）
+    this.fromInput.value = this.filter.from;
+    this.toInput.value = this.filter.to;
     for (const input of [this.fromInput, this.toInput]) {
       input.addEventListener("change", () => {
         this.filter.from = this.fromInput.value;
         this.filter.to = this.toInput.value;
-        this.render();
+        this.applyFilter();
       });
     }
 
@@ -202,11 +217,10 @@ export class PhotoFeedView extends ItemView {
       attr: { type: "button" },
     });
     this.resetBtn.addEventListener("click", () => {
-      this.filter = { ...NO_FILTER };
+      this.filter = freshFilter();
       this.fromInput.value = "";
       this.toInput.value = "";
-      this.syncChips();
-      this.render();
+      this.applyFilter();
       this.scrollEl.scrollTop = 0;
     });
 
@@ -252,10 +266,45 @@ export class PhotoFeedView extends ItemView {
     this.filterFab.removeClass("pf-fab-active");
   }
 
+  // ─────────────── 筛选状态的记忆 ───────────────
+
+  /** 读回上次的筛选：字段逐个校验，坏数据一律退回默认值（改过格式的旧存档也不怕） */
+  private loadFilter(): FilterState {
+    const raw = this.app.loadLocalStorage(FILTER_STORE_KEY);
+    if (!raw || typeof raw !== "object") return freshFilter();
+    const o = raw as Record<string, unknown>;
+    return {
+      srcs: Array.isArray(o.srcs)
+        ? o.srcs.filter((n): n is string => typeof n === "string" && n.length > 0)
+        : [],
+      year: typeof o.year === "string" ? o.year : "all",
+      from: typeof o.from === "string" ? o.from : "",
+      to: typeof o.to === "string" ? o.to : "",
+    };
+  }
+
+  private saveFilter(): void {
+    this.app.saveLocalStorage(FILTER_STORE_KEY, this.filter);
+  }
+
+  /**
+   * 筛选变动的**唯一出口**：先落盘再重绘。
+   * 集中成一处是为了不漏 —— 漏掉任何一个入口，就会出现「界面上筛了、重启后又没了」。
+   * 失效的来源名 / 年份不在这里清：render 时的既有逻辑本来就会把它们退回默认。
+   */
+  private applyFilter(): void {
+    this.saveFilter();
+    this.syncChips();
+    this.render();
+  }
+
   /**
    * 来源 chips：**按索引里实际存在的来源动态生成**，标签直接用设置页里配的显示名称。
    * 这里不写死任何来源名——改了来源文件夹/换了名字，chips 跟着变。
    * 只有一个来源（或没有）时整排隐藏：「全部 / 唯一来源」两个选项没有任何意义。
+   *
+   * 多选：「全部」= 清空已选（不是第三个状态，一个都不选本来就等于全部）；
+   * 每个来源是 toggle，点一下加入、再点一下移出。多个来源之间取并集。
    */
   private renderSourceChips(): void {
     const counts = new Map<string, number>();
@@ -269,11 +318,20 @@ export class PhotoFeedView extends ItemView {
     );
 
     const multi = names.length > 1;
-    // 来源被改名/删掉了 → 退回「全部」；
-    // 只剩一个来源时也要退回：chips 已经隐藏，用户没法再改回来，
+    // 来源被改名/删掉了 → 把已选里失效的名字剔掉，剔空了自然就回到「全部」；
+    // 只剩一个来源时整排清空：chips 已经隐藏，用户没法再改回来，
     // 留着一个看不见的激活筛选（按钮亮着小圆点却找不到出处）最让人困惑。
-    if (!multi || !names.includes(this.filter.src)) {
-      this.filter.src = "all";
+    if (!multi) {
+      if (this.filter.srcs.length) {
+        this.filter.srcs = [];
+        this.saveFilter(); // 顺手落盘，别让存储里留着已经失效的选择
+      }
+    } else {
+      const valid = this.filter.srcs.filter((n) => names.includes(n));
+      if (valid.length !== this.filter.srcs.length) {
+        this.filter.srcs = valid;
+        this.saveFilter();
+      }
     }
 
     this.chipsEl.toggleClass("pf-chips-hidden", !multi);
@@ -294,10 +352,15 @@ export class PhotoFeedView extends ItemView {
         });
         chip.dataset.value = value;
         chip.addEventListener("click", () => {
-          if (this.filter.src === value) return;
-          this.filter.src = value;
-          this.syncChips();
-          this.render();
+          if (value === "all") {
+            if (!this.filter.srcs.length) return;
+            this.filter.srcs = [];
+          } else if (this.filter.srcs.includes(value)) {
+            this.filter.srcs = this.filter.srcs.filter((n) => n !== value);
+          } else {
+            this.filter.srcs = [...this.filter.srcs, value];
+          }
+          this.applyFilter();
         });
       }
     }
@@ -306,15 +369,18 @@ export class PhotoFeedView extends ItemView {
   }
 
   private syncChips(): void {
+    const chosen = new Set(this.filter.srcs);
     for (const chip of Array.from(this.chipsEl.children) as HTMLElement[]) {
-      chip.toggleClass("pf-chip-active", chip.dataset.value === this.filter.src);
+      const value = chip.dataset.value ?? "";
+      // 「全部」只在「一个来源都没选」时亮
+      chip.toggleClass("pf-chip-active", value === "all" ? chosen.size === 0 : chosen.has(value));
     }
   }
 
   /** 有筛选条件生效时，在按钮上点一个小圆点提示 */
   private syncFilterBadge(): void {
     const on =
-      this.filter.src !== "all" ||
+      this.filter.srcs.length > 0 ||
       this.filter.year !== "all" ||
       !!this.filter.from ||
       !!this.filter.to;
@@ -377,11 +443,11 @@ export class PhotoFeedView extends ItemView {
 
   // ─────────────── 渲染 ───────────────
 
-  /** 筛选 + 排序（最新 → 最旧） */
+  /** 筛选 + 排序（最新 → 最旧）。来源是多选，命中任意一个已选来源即可。 */
   private selectPosts(): FeedPost[] {
-    const { src, year, from, to } = this.filter;
+    const { srcs, year, from, to } = this.filter;
     const list = this.plugin.indexer.getPosts().filter((p) => {
-      if (src !== "all" && p.src !== src) return false;
+      if (srcs.length && !srcs.includes(p.src)) return false;
       if (year !== "all" && !p.date.startsWith(year)) return false;
       if (from && p.date < from) return false;
       if (to && p.date > to) return false;
