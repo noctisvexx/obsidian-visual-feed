@@ -6,7 +6,7 @@
  *  4. 点击图片 → 回调拿到正确的下标；点开原记录是图标按钮
  *  5. Feed 分批渲染 + 哨兵追加 + 空状态
  *  6. Lightbox：打开 / 切换 / Esc 关闭并清理键盘监听；视频走 <video> 不自动播放
- *  7. 视频轮播：内嵌播放器 + 全屏按钮，不自动播放
+ *  7. 视频轮播：内嵌播放器 + 全屏按钮，不自动播放；src 带 #t=0.1 封面帧（移动端才有缩略图）
  *  8. 视图骨架：标题居中、没有顶部工具栏、左下角筛选 FAB + 右下角发布 FAB
  *  9. 设置页：来源文件夹管理 + 发布区块（回归：曾经「看不到设置」）
  * 运行：node test/build-test.mjs && node test/run-dom-test.cjs
@@ -23,6 +23,7 @@ import { Lightbox } from "../src/components/Lightbox";
 import { PhotoFeedView } from "../src/views/PhotoFeedView";
 import { DEFAULT_SETTINGS, normalizeSources, PhotoFeedSettingTab } from "../src/settings";
 import { PublishModal } from "../src/publish/PublishModal";
+import { videoThumbSrc } from "../src/utils/video";
 import type { FeedPost, Photo } from "../src/types";
 import { PLUGIN_NAME } from "../src/types";
 
@@ -402,6 +403,20 @@ async function main(): Promise<void> {
     check("Carousel 可安全销毁", true);
   }
 
+  // ───────── 5b. 视频封面地址工具（移动端缩略图的关键） ─────────
+  {
+    check(
+      "videoThumbSrc：普通地址挂上 #t=0.1",
+      videoThumbSrc("app://local/clip.mp4") === "app://local/clip.mp4#t=0.1",
+      videoThumbSrc("app://local/clip.mp4")
+    );
+    check(
+      "videoThumbSrc：已带片段的地址原样返回（不二次拼接）",
+      videoThumbSrc("https://example.com/v.mp4#t=3") === "https://example.com/v.mp4#t=3"
+    );
+    check("videoThumbSrc：空地址原样返回", videoThumbSrc("") === "");
+  }
+
   // ───────── 6. 视频轮播 ─────────
   {
     // 合成视频已经在模块顶部注册过，这里直接用
@@ -440,6 +455,13 @@ async function main(): Promise<void> {
     check(
       "视频懒加载：进入视口后才设置 src",
       (video.getAttribute("src") ?? "").startsWith("app://local/"),
+      video.getAttribute("src") ?? ""
+    );
+    // 移动端 WebView 不会为 preload="metadata" 的 <video> 画首帧（桌面会）→ 卡片上是一块黑。
+    // #t=0.1 让浏览器 seek 到该时间点并把它当封面渲染出来，是两端唯一一致的做法。
+    check(
+      "视频地址挂了封面时间片段 #t=0.1（移动端才有缩略图）",
+      (video.getAttribute("src") ?? "").endsWith("#t=0.1"),
       video.getAttribute("src") ?? ""
     );
 
@@ -564,6 +586,11 @@ async function main(): Promise<void> {
     check(
       "视频 src 指向 Vault 资源",
       (v.getAttribute("src") ?? "").startsWith("app://local/"),
+      v.getAttribute("src") ?? ""
+    );
+    check(
+      "大图视频同样挂 #t=0.1（打开就是首帧，不是黑屏）",
+      (v.getAttribute("src") ?? "").endsWith("#t=0.1"),
       v.getAttribute("src") ?? ""
     );
     check(

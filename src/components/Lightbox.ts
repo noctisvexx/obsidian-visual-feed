@@ -2,6 +2,7 @@ import { App, TFile, setIcon } from "obsidian";
 import type { FeedPost, Photo } from "../types";
 import { kindOf } from "../types";
 import { humanDate } from "../utils/date";
+import { videoThumbSrc } from "../utils/video";
 
 /** Lightbox 里的一条媒体 + 它所属的 Post（用于显示来源/日期/原记录） */
 export interface LightboxItem {
@@ -253,7 +254,9 @@ export class Lightbox {
       this.imgEl.removeAttribute("src");
       this.imgEl.addClass("pf-lb-hidden");
       this.videoEl.show();
-      if (this.videoEl.getAttribute("src") !== src) this.videoEl.setAttribute("src", src);
+      // 同 Carousel.loadMedia：移动端要 #t=… 才会画出首帧，否则打开大图是一片黑
+      const vsrc = videoThumbSrc(src);
+      if (this.videoEl.getAttribute("src") !== vsrc) this.videoEl.setAttribute("src", vsrc);
     } else {
       this.videoMode = false;
       this.stopVideo();

@@ -2,6 +2,7 @@ import { App, Modal, Notice, setIcon } from "obsidian";
 import type PhotoFeedPlugin from "../main";
 import { FolderPickerModal } from "../settings";
 import { kindOfExt, type MediaKind } from "../types";
+import { videoThumbSrc } from "../utils/video";
 import {
   ensureSourceFor,
   nowDate,
@@ -187,7 +188,10 @@ export class PublishModal extends Modal {
       const cell = this.gridEl.createDiv({ cls: "pf-pub-file" });
       if (p.kind === "video") {
         if (p.url) {
-          cell.createEl("video", { attr: { src: p.url, muted: "true" } });
+          // #t=0.1 见 utils/video：移动端不给 <video> 画首帧，预览会是一片黑
+          cell.createEl("video", {
+            attr: { src: videoThumbSrc(p.url), muted: "true", preload: "metadata" },
+          });
         } else {
           const icon = cell.createDiv({ cls: "pf-pub-file-icon" });
           setIcon(icon, "film");

@@ -156,7 +156,7 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 **401** 项断言（`run-test` 221 + `run-dom-test` 180）：
+两套测试，加起来 **406** 项断言（`run-test` 221 + `run-dom-test` 185）：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
 - **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页（声明式定义的渲染 / 显隐谓词 / 读写与副作用）。
@@ -364,7 +364,7 @@ npm test        # bundle the tests + run the end-to-end suite
 
 #### Tests
 
-Two suites, **401** assertions in total (`run-test` 221 + `run-dom-test` 180):
+Two suites, **406** assertions in total (`run-test` 221 + `run-dom-test` 185):
 
 - **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
 - **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, and the settings tab (declarative definitions, `visible` predicates, control read/write plus their side effects).

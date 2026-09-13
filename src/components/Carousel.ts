@@ -7,6 +7,7 @@ import {
   ratioToCss,
   type FrameRatioConfig,
 } from "../utils/ratio";
+import { videoThumbSrc } from "../utils/video";
 
 export interface CarouselOptions {
   app: App;
@@ -240,7 +241,8 @@ export class Carousel {
   private loadMedia(el: HTMLElement): void {
     const src = el.getAttribute("data-pf-src");
     if (!src || el.getAttribute("src")) return;
-    el.setAttribute("src", src);
+    // 视频要挂封面时间片段：移动端不会为 preload="metadata" 的 <video> 画首帧，桌面会
+    el.setAttribute("src", el.tagName === "VIDEO" ? videoThumbSrc(src) : src);
   }
 
   // ─────────────── 滚动 / 拖拽 ───────────────
