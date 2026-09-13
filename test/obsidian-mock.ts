@@ -434,6 +434,10 @@ class ButtonStub {
     this.el.addClass("mod-warning");
     return this;
   }
+  setDestructive(): this {
+    this.el.addClass("mod-destructive");
+    return this;
+  }
   setTooltip(): this {
     return this;
   }
@@ -527,20 +531,150 @@ export class Setting {
   }
 }
 
+/**
+ * 设置页基类桩。
+ * 除了老的 display()，这里也补上了 1.13.0 声明式设置 API 的几个方法
+ * （getSettingDefinitions / getControlValue / setControlValue / update / refreshDomState）：
+ * 语义照官方文档（读 `plugin.settings[key]`、写回并落盘、update() 重建定义），
+ * 真正的渲染由下面的 renderSettingTab() 负责。
+ */
 export class PluginSettingTab {
   app: App;
   plugin: unknown;
   containerEl: HTMLElement;
+  /** 最近一次 getSettingDefinitions() 的结果 */
+  settingItems: unknown[] = [];
+  /** 上次渲染到哪个容器 —— update() / refreshDomState() 要原地重绘 */
+  renderHost: HTMLElement | null = null;
   constructor(app: App, plugin: unknown) {
     this.app = app;
     this.plugin = plugin;
     this.containerEl = document.createElement("div");
   }
+  getSettingDefinitions(): unknown[] {
+    return [];
+  }
+  getControlValue(key: string): unknown {
+    return (this.plugin as { settings?: Record<string, unknown> })?.settings?.[key];
+  }
+  setControlValue(key: string, value: unknown): void {
+    const p = this.plugin as {
+      settings?: Record<string, unknown>;
+      saveSettings?: () => Promise<void>;
+    };
+    if (p?.settings) p.settings[key] = value;
+    void p?.saveSettings?.();
+  }
+  update(): void {
+    if (this.renderHost) renderInto(this, this.renderHost);
+  }
+  refreshDomState(): void {
+    // 桩里没有「就地刷新谓词」这套，整块重绘一遍，效果等价
+    this.update();
+  }
   display(): void {
-    /* 子类实现 */
+    /* 子类实现（1.13.0 起被声明式定义取代） */
   }
   hide(): void {
     /* noop */
+  }
+}
+
+// ───────────────── 声明式设置的最小渲染器 ─────────────────
+
+function renderInto(tab: PluginSettingTab, host: HTMLElement): void {
+  tab.settingItems = tab.getSettingDefinitions();
+  host.empty();
+  renderSettingItems(tab, host, tab.settingItems);
+}
+
+/**
+ * 测试端的声明式设置渲染器：真实 Obsidian 自己渲染 getSettingDefinitions() 的返回值，
+ * 桩环境里没有这套引擎，所以照官方文档描述的语义补一份最小实现 ——
+ * group/heading、visible 谓词、control 绑定、render 逃生口、action 行。
+ */
+export function renderSettingTab(tab: PluginSettingTab, containerEl: HTMLElement): void {
+  tab.renderHost = containerEl;
+  renderInto(tab, containerEl);
+}
+
+function renderSettingItems(
+  tab: PluginSettingTab,
+  host: HTMLElement,
+  items: unknown[]
+): void {
+  for (const raw of items) {
+    const item = raw as {
+      type?: string;
+      heading?: string;
+      name?: string;
+      desc?: string | DocumentFragment;
+      items?: unknown[];
+      visible?: boolean | (() => boolean);
+      control?: { type: string; key: string; options?: Record<string, string>; min?: number; max?: number; step?: number; defaultValue?: unknown };
+      render?: (setting: Setting, group: unknown) => void;
+      action?: (el: HTMLElement, index: number) => void;
+    };
+    const visible =
+      typeof item.visible === "function" ? item.visible() : item.visible !== false;
+    if (!visible) continue;
+
+    if (item.type === "group" || item.type === "list") {
+      if (item.heading) new Setting(host).setName(item.heading).setHeading();
+      renderSettingItems(tab, host, item.items ?? []);
+      continue;
+    }
+
+    const setting = new Setting(host).setName(item.name ?? "");
+    if (typeof item.desc === "string") setting.setDesc(item.desc);
+    if (item.render) {
+      item.render(setting, { listEl: host });
+      continue;
+    }
+    if (item.control) {
+      applyControl(tab, setting, item.control);
+      continue;
+    }
+    if (item.action) {
+      const el = setting.controlEl.createEl("button", { text: item.name ?? "" });
+      el.addEventListener("click", () => item.action?.(el, 0));
+    }
+  }
+}
+
+function applyControl(
+  tab: PluginSettingTab,
+  setting: Setting,
+  control: { type: string; key: string; options?: Record<string, string>; min?: number; max?: number; step?: number; defaultValue?: unknown }
+): void {
+  const key = control.key;
+  if (control.type === "toggle") {
+    setting.addToggle((t) =>
+      t.setValue(Boolean(tab.getControlValue(key))).onChange((v) => {
+        tab.setControlValue(key, v);
+      })
+    );
+    return;
+  }
+  if (control.type === "dropdown") {
+    setting.addDropdown((dd) => {
+      for (const [value, label] of Object.entries(control.options ?? {})) dd.addOption(value, label);
+      const current = tab.getControlValue(key) ?? control.defaultValue ?? "";
+      dd.setValue(String(current)).onChange((v) => {
+        tab.setControlValue(key, v);
+      });
+    });
+    return;
+  }
+  if (control.type === "slider") {
+    setting.addSlider((sl) =>
+      sl
+        .setLimits(control.min ?? 0, control.max ?? 100, control.step ?? 1)
+        .setValue(Number(tab.getControlValue(key)))
+        .onChange((v) => {
+          tab.setControlValue(key, v);
+        })
+    );
   }
 }
 

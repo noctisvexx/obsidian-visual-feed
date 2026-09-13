@@ -902,6 +902,24 @@
   margin-top: -8px;
 }
 
+/*
+ * 声明式设置里被 render 接管的行（intro / 统计 / 来源列表 / 发布说明）：
+ * Obsidian 默认把 .setting-item 排成 flex（左 name/desc，右 control），
+ * 自定义块要塞满整行就得改回 block。
+ */
+.pf-row-block {
+  display: block;
+}
+
+/*
+ * 文件夹选择行：控件区吃满剩余宽度，长路径才不会把右边的「📁 选择」挤出可视区。
+ * 用双类选择器提高特异性，避免写 !important（社区审核硬规则）。
+ */
+.setting-item-control.pf-folder-row {
+  flex: 1 1 260px;
+  justify-content: flex-start;
+}
+
 .pf-src-list {
   display: flex;
   flex-direction: column;

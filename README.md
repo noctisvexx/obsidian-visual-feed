@@ -89,6 +89,10 @@
 
 装了 [BRAT](https://github.com/TfTHacker/obsidian42-brat) 的话，直接把本仓库地址加进去即可。
 
+> **版本要求：Obsidian 1.13.0 或更新。** 设置页用的是 1.13.0 引入的声明式设置 API
+> （设置项因此也能被 Obsidian 自带的设置搜索搜到）。还在更旧的版本上，可以继续用
+> [1.6.4](https://github.com/noctisvexx/obsidian-visual-feed/releases/tag/1.6.4)（最后一个支持 1.5.0+）。
+
 ---
 
 ## 快速开始
@@ -126,6 +130,8 @@
 | **发布文件夹自动加为来源** | 否则刚发布的照片不会出现在 Feed 里 |
 | **启动时打开照片流** | Obsidian 启动后自动打开视界 |
 
+> 设置页用的是 Obsidian 1.13.0 的**声明式设置 API**，所以上面这些项也能在 Obsidian 自带的设置搜索里搜到。
+
 ---
 
 ## 工作原理
@@ -150,10 +156,10 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 **390** 项断言（`run-test` 221 + `run-dom-test` 169）：
+两套测试，加起来 **401** 项断言（`run-test` 221 + `run-dom-test` 180）：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
-- **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页动态重绘。
+- **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页（声明式定义的渲染 / 显隐谓词 / 读写与副作用）。
 
 两套测试里的**写操作全部走内存 overlay**，任何情况下都不会改到你磁盘上的真实笔记。
 
@@ -183,9 +189,9 @@ gh attestation verify main.js --owner noctisvexx
 
 1. 改 `manifest.json` / `package.json` / `versions.json` 里的版本号（补丁位递推）
 2. `git commit && git push`
-3. `git tag 1.6.4 && git push origin 1.6.4` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
+3. `git tag 1.6.5 && git push origin 1.6.5` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
 4. workflow 自动构建 → 背书 → 上传三个附件（Release 不存在就自动建一个）
-5. 补发布说明：`gh release edit 1.6.4 --notes "..."`
+5. 补发布说明：`gh release edit 1.6.5 --notes "..."`
 
 本地 `npm run build` 只用于测试和塞进 Vault，不再是分发来源。
 
@@ -289,6 +295,11 @@ The bottom-left filter button: by **source** + **year** + **date range**. The so
 
 If you have [BRAT](https://github.com/TfTHacker/obsidian42-brat) installed, simply add this repository's URL.
 
+> **Requires Obsidian 1.13.0 or newer.** The settings tab uses the declarative settings API
+> introduced in 1.13.0 (which is also what makes the settings searchable from Obsidian's own
+> settings search). On older versions, keep using
+> [1.6.4](https://github.com/noctisvexx/obsidian-visual-feed/releases/tag/1.6.4) — the last release supporting 1.5.0+.
+
 ---
 
 ### Quick start
@@ -326,6 +337,8 @@ After that, **creating / modifying / deleting / renaming** files inside Obsidian
 | **Auto-add publish folder as a source** | Otherwise photos you just published will not show up in the feed |
 | **Open feed on startup** | Automatically open Visual Feed when Obsidian starts |
 
+> The settings tab uses Obsidian 1.13.0's **declarative settings API**, so every setting above is also reachable from Obsidian's own settings search.
+
 ---
 
 ### How it works
@@ -351,10 +364,10 @@ npm test        # bundle the tests + run the end-to-end suite
 
 #### Tests
 
-Two suites, **390** assertions in total (`run-test` 221 + `run-dom-test` 169):
+Two suites, **401** assertions in total (`run-test` 221 + `run-dom-test` 180):
 
 - **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
-- **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, settings-page re-rendering.
+- **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, and the settings tab (declarative definitions, `visible` predicates, control read/write plus their side effects).
 
 Every **write in both suites goes through an in-memory overlay** — your real notes on disk are never touched.
 
@@ -385,9 +398,9 @@ To release:
 
 1. Bump the version in `manifest.json` / `package.json` / `versions.json` (patch digit only)
 2. `git commit && git push`
-3. `git tag 1.6.4 && git push origin 1.6.4` — the **tag must match `manifest.json`'s `version` exactly, with no `v` prefix** (the directory enforces this; `.github/workflows/release.yml` checks it first and fails fast)
+3. `git tag 1.6.5 && git push origin 1.6.5` — the **tag must match `manifest.json`'s `version` exactly, with no `v` prefix** (the directory enforces this; `.github/workflows/release.yml` checks it first and fails fast)
 4. The workflow builds → attests → uploads the three assets (creating the release if needed)
-5. Add release notes: `gh release edit 1.6.4 --notes "..."`
+5. Add release notes: `gh release edit 1.6.5 --notes "..."`
 
 A local `npm run build` is for testing and sideloading into your vault — it is no longer the distribution source.
 

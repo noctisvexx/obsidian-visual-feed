@@ -15,7 +15,7 @@ import { setupDom, tick } from "./dom-harness";
 
 const env = setupDom();
 
-import { App, TFile } from "./obsidian-mock";
+import { App, renderSettingTab, TFile } from "./obsidian-mock";
 import { Carousel } from "../src/components/Carousel";
 import { buildPostCard } from "../src/components/PostCard";
 import { Feed } from "../src/components/Feed";
@@ -898,6 +898,7 @@ async function main(): Promise<void> {
     // 记录「索引侧元信息被就地同步」的调用，用来验证改说明不会触发全量重建
     const metaCalls: string[] = [];
     const notifyCalls: string[] = [];
+    const rebuildCalls: string[] = [];
     const pluginStub5 = {
       app: app5,
       settings: s5,
@@ -910,14 +911,52 @@ async function main(): Promise<void> {
         },
       },
       saveSettings: async () => undefined,
-      rebuildIndex: async () => undefined,
+      rebuildIndex: async () => {
+        rebuildCalls.push("rebuild");
+      },
       notifyIndexChanged: (src?: string) => {
         notifyCalls.push(String(src));
       },
     };
     const tab = new PhotoFeedSettingTab(app5 as never, pluginStub5 as never);
-    tab.display();
+    // 1.13.0 起设置页走声明式 API：桩环境没有渲染引擎，用测试端的 renderSettingTab 把
+    // getSettingDefinitions() 的返回值画出来（真实 Obsidian 自己会画）。
+    renderSettingTab(tab, tab.containerEl);
     const el = tab.containerEl;
+
+    // ── 声明式设置契约（社区审核的两条告警都指着这里）──
+    const hasOwn = (k: string): boolean =>
+      Object.prototype.hasOwnProperty.call(PhotoFeedSettingTab.prototype, k);
+    const defs = tab.getSettingDefinitions();
+    check("设置页实现了非空的 getSettingDefinitions()", Array.isArray(defs) && defs.length > 0, `len=${defs?.length}`);
+    check("getSettingDefinitions() 是自有实现（审核要求）", hasOwn("getSettingDefinitions"));
+    check("display() 不再被覆写（1.13.0 起 deprecated）", !hasOwn("display"));
+    check("getControlValue / setControlValue 是自有实现", hasOwn("getControlValue") && hasOwn("setControlValue"));
+    // 收集所有声明式控件的 key：拼错 key 的话控件会静默读不到值（下拉框变空白）
+    const collectControlKeys = (items: unknown[]): string[] => {
+      const keys: string[] = [];
+      for (const raw of items) {
+        const it = raw as {
+          type?: string;
+          items?: unknown[];
+          control?: { key?: string };
+        };
+        if (it.type === "group" || it.type === "list") keys.push(...collectControlKeys(it.items ?? []));
+        else if (it.control?.key) keys.push(it.control.key);
+      }
+      return keys;
+    };
+    const controlKeys = collectControlKeys(defs);
+    check(
+      "声明式控件都指向真实存在的设置项（无拼错的 key）",
+      controlKeys.length > 0 && controlKeys.every((k) => k in (s5 as unknown as Record<string, unknown>)),
+      controlKeys.filter((k) => !(k in (s5 as unknown as Record<string, unknown>))).join(",")
+    );
+    check(
+      "比例键读回来是字符串（下拉框选项 key 是字符串，不转就会渲染成空白）",
+      tab.getControlValue("mediaRatioMin") === String(s5.mediaRatioMin),
+      String(tab.getControlValue("mediaRatioMin"))
+    );
 
     check(
       "设置页标题 = 新插件名且居中容器",
@@ -1055,6 +1094,41 @@ async function main(): Promise<void> {
       selectOf("最窄")?.value === "0.5" && selectOf("最宽")?.value === "2",
       `最窄=${selectOf("最窄")?.value ?? "无"} 最宽=${selectOf("最宽")?.value ?? "无"}`
     );
+
+    // 声明式控件也必须补上旧 onChange 的副作用：改了要重建索引的设置
+    rebuildCalls.length = 0;
+    await pick("分组方式", "file");
+    check(
+      "改「分组方式」写回设置并触发重建索引",
+      s5.groupBy === "file" && rebuildCalls.length === 1,
+      `groupBy=${s5.groupBy} rebuild=${rebuildCalls.length}`
+    );
+
+    // 只落盘的设置（不影响已渲染内容）不该触发 Feed 刷新
+    notifyCalls.length = 0;
+    const autoBox = rowByName("发布文件夹自动加为来源")?.querySelector<HTMLInputElement>(
+      "input[type=checkbox]"
+    );
+    if (autoBox) {
+      autoBox.checked = false;
+      autoBox.dispatchEvent(new env.window.Event("change", { bubbles: true }));
+      await tick(0);
+    }
+    check(
+      "改只落盘的开关（自动加为来源）不触发 Feed 刷新",
+      s5.autoAddSource === false && notifyCalls.length === 0,
+      `autoAddSource=${s5.autoAddSource} notify=${notifyCalls.length}`
+    );
+
+    // 重建索引按钮走 render 逃生口（按钮用的是 1.13.0 的 setDestructive）
+    const rebuildBtn = [...el.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "重建索引"
+    );
+    check("有「重建索引」按钮", !!rebuildBtn);
+    rebuildCalls.length = 0;
+    rebuildBtn?.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
+    await tick(0);
+    check("点「重建索引」会真的重建索引", rebuildCalls.length === 1, `${rebuildCalls.length}`);
 
     // 点「添加来源文件夹」→ 打开文件夹选择弹窗
     const before = document.body.children.length;

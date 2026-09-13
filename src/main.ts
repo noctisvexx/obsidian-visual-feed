@@ -135,9 +135,9 @@ export default class PhotoFeedPlugin extends Plugin {
   /**
    * 打开 / 前置视界视图。
    *
-   * 这里用 setActiveLeaf（0.16.3 起就有）而不是 revealLeaf —— 后者的类型签名标注
-   * @since 1.7.2，而 minAppVersion 是 1.5.0，用它会被社区审核判为
-   * 「使用了高于 minAppVersion 的 API」；换用 setActiveLeaf 就不必抬高最低版本要求。
+   * 用 setActiveLeaf 而不是 revealLeaf：要的是「切过去并聚焦」，setActiveLeaf 的两参重载
+   * （0.16.3 起）正是这个语义，也没有被标记 deprecated —— revealLeaf(leaf) 只负责显示、
+   * 不聚焦，反而要多写一步。
    */
   async activateView(): Promise<void> {
     const { workspace } = this.app;
