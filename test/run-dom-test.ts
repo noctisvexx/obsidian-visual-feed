@@ -984,6 +984,99 @@ async function main(): Promise<void> {
         !!view3.contentEl.querySelector(".pf-fab-filter .pf-fab-dot")
     );
 
+    // ── 冷启动鲁棒性（移动端「划掉后台再重启，视界标签页打不开」）──
+    // 视图初始化阶段的任何一次抛异常都会让整个标签页空白，而存储读写是这一阶段唯一的外部调用。
+    // 本地存储是跨 App 实例共享的，先清干净，避免前面几条用例写进去的筛选影响这里的条数
+    resetLocalStorage();
+    const app7 = new App(VAULT_ROOT);
+    (app7 as unknown as { loadLocalStorage: () => never }).loadLocalStorage = () => {
+      throw new Error("boom: 本地存储不可用");
+    };
+    (app7 as unknown as { saveLocalStorage: () => never }).saveLocalStorage = () => {
+      throw new Error("boom: 本地存储不可用");
+    };
+    const view4 = new PhotoFeedView({ app: app7 } as never, pluginStub as never);
+    await view4.onOpen();
+    check(
+      "本地存储读/写抛异常时视图照常打开（退化成「不记忆筛选」，而不是空白标签页）",
+      view4.contentEl.querySelectorAll(".pf-post").length === 2 &&
+        !view4.contentEl.querySelector(".pf-init-error"),
+      `${view4.contentEl.querySelectorAll(".pf-post").length} 条`
+    );
+
+    // 冷启动时序：视图可能先于工作区布局就绪被恢复，首帧渲染在「容器还没量出高度」的阶段
+    const app8 = new App(VAULT_ROOT);
+    app8.workspace.markLayoutNotReady();
+    const view5 = new PhotoFeedView({ app: app8 } as never, pluginStub as never);
+    await view5.onOpen();
+    check(
+      "冷启动（工作区布局尚未就绪）时打开视图照样有内容",
+      view5.contentEl.querySelectorAll(".pf-post").length === 2,
+      `${view5.contentEl.querySelectorAll(".pf-post").length} 条`
+    );
+    // 清掉首帧内容，模拟「渲染成了一个空壳」
+    (view5.contentEl.querySelector(".pf-feed-inner") as HTMLElement).empty();
+    app8.workspace.markLayoutReady();
+    check(
+      "工作区布局就绪后自动补渲染一次，空壳被填回内容（不用手动切标签页）",
+      view5.contentEl.querySelectorAll(".pf-post").length === 2,
+      `${view5.contentEl.querySelectorAll(".pf-post").length} 条`
+    );
+
+    // 初始化真的抛异常时：必须给可读的错误面板，而不是留白
+    const app9 = new App(VAULT_ROOT);
+    const view6 = new PhotoFeedView({ app: app9 } as never, pluginStub as never);
+    (view6 as unknown as { buildSkeleton: () => never }).buildSkeleton = () => {
+      throw new Error("boom: 骨架构建失败");
+    };
+    await view6.onOpen();
+    check(
+      "初始化抛异常时给错误面板 + 重试按钮（不是一片空白，用户能看懂发生了什么）",
+      !!view6.contentEl.querySelector(".pf-init-error-title") &&
+        !!view6.contentEl.querySelector(".pf-init-error-btn") &&
+        !view6.contentEl.querySelector(".pf-post")
+    );
+    Reflect.deleteProperty(view6, "buildSkeleton"); // 故障排除 → 回落原型上的正常实现
+    (view6.contentEl.querySelector(".pf-init-error-btn") as HTMLElement).dispatchEvent(
+      new env.window.MouseEvent("click", { bubbles: true })
+    );
+    await tick(0);
+    check(
+      "点「重试」重新走一遍初始化，内容恢复正常",
+      view6.contentEl.querySelectorAll(".pf-post").length === 2,
+      `${view6.contentEl.querySelectorAll(".pf-post").length} 条`
+    );
+
+    // 初始化失败 + 布局尚未就绪 → 布局就绪后自动重试
+    // （对应手机端「划掉后台重启 → 整片空白 → 关掉标签页重开才好」）
+    const app10 = new App(VAULT_ROOT);
+    app10.workspace.markLayoutNotReady();
+    const view7 = new PhotoFeedView({ app: app10 } as never, pluginStub as never);
+    const protoBuild = (Object.getPrototypeOf(view7) as { buildFilterPanel: () => void })
+      .buildFilterPanel;
+    let buildCalls = 0;
+    (view7 as unknown as { buildFilterPanel: () => void }).buildFilterPanel = function (
+      this: unknown
+    ) {
+      buildCalls += 1;
+      if (buildCalls === 1) throw new Error("boom: 宿主还没就绪");
+      return protoBuild.call(this);
+    };
+    await view7.onOpen();
+    check(
+      "初始化失败时先给出错误面板（不是一片空白）",
+      !!view7.contentEl.querySelector(".pf-init-error") &&
+        !view7.contentEl.querySelector(".pf-post")
+    );
+    app10.workspace.markLayoutReady();
+    await tick(0);
+    check(
+      "布局就绪后自动重试一次：不用手动关标签页重开，内容自己出来了",
+      view7.contentEl.querySelectorAll(".pf-post").length === 2 &&
+        !view7.contentEl.querySelector(".pf-init-error"),
+      `${view7.contentEl.querySelectorAll(".pf-post").length} 条`
+    );
+
     // 点「重置筛选」→ 存储一起清，否则下次重启又冒出来
     (root2.querySelector(".pf-reset") as HTMLElement).dispatchEvent(
       new env.window.MouseEvent("click", { bubbles: true })

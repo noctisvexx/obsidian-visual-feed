@@ -418,6 +418,49 @@
   height: 1px;
 }
 
+/* ── 初始化失败提示（冷启动/宿主异常时替代「一片空白」） ── */
+.pf-init-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 64px 24px;
+  text-align: center;
+}
+
+.pf-init-error-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.pf-init-error-msg {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  max-width: 420px;
+  word-break: break-word;
+}
+
+/*
+ * ⚠️ 前缀提权：Obsidian 内置 `button:not(.clickable-icon)` 特异性是 (0,1,1)，
+ * 单个类名的 (0,1,0) 会被它顶掉（背景被打回灰底）。
+ */
+.pf-init-error .pf-init-error-btn {
+  margin-top: 4px;
+  padding: 4px 16px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.pf-init-error .pf-init-error-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
 /* ── 有更新提示 ── */
 .pf-pill {
   position: absolute;
@@ -760,10 +803,17 @@
   visibility: hidden;
 }
 
+/*
+ * 关闭按钮。
+ * ⚠️ 必须让开安全区：大图是 fixed 全屏遮罩，移动端的视口包含状态栏/刘海，
+ * 写死 top: 14px 会正好落在系统状态栏下面 —— 看得见、点不到（触摸被系统吃掉）。
+ * env(safe-area-inset-*) 在不支持/@media 不生效的环境里 fallback 0px，桌面端取值不变。
+ * z-index 高于左右切换按钮（3），确保永远可点。
+ */
 .pf-lb-close {
   position: absolute;
-  top: 14px;
-  right: 16px;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -774,8 +824,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 3;
+  z-index: 5;
   padding: 0;
+  touch-action: manipulation;
 }
 
 .pf-lb-close:hover {
@@ -1413,8 +1464,32 @@
     --pf-tile: 200px;
   }
 
+  /*
+   * 顶部留白必须 > 关闭按钮的下边缘（安全区 + 16 + 44 = 安全区 + 60），
+   * 否则竖构图「大图」会一路顶到屏幕顶部，视觉上把关闭按钮糊住，手指点下去先碰到图片。
+   */
   .pf-lb-stage {
-    padding: 44px 8px 6px;
+    padding: calc(env(safe-area-inset-top, 0px) + 68px) 8px 6px;
+  }
+
+  /* 关闭按钮：同样让开安全区，并撑到 44px —— 手指的最小可靠触摸目标 */
+  .pf-lb-close {
+    top: calc(env(safe-area-inset-top, 0px) + 16px);
+    right: calc(env(safe-area-inset-right, 0px) + 12px);
+    width: 44px;
+    height: 44px;
+    /* 手机上图片不透明区域更大，半透明浅底容易和画面糊在一起 → 加深底 + 描边 */
+    background: rgba(18, 18, 22, 0.62);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+  }
+
+  .pf-lb-close:active {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .pf-lb-close .svg-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .pf-lb-nav {

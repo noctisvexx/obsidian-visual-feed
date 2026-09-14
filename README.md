@@ -156,7 +156,7 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 **420** 项断言（`run-test` 223 + `run-dom-test` 197）：
+两套测试，加起来 **432** 项断言（`run-test` 228 + `run-dom-test` 204）：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
 - **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页（声明式定义的渲染 / 显隐谓词 / 读写与副作用）。
@@ -189,9 +189,9 @@ gh attestation verify main.js --owner noctisvexx
 
 1. 改 `manifest.json` / `package.json` / `versions.json` 里的版本号（补丁位递推）
 2. `git commit && git push`
-3. `git tag 1.6.7 && git push origin 1.6.7` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
+3. `git tag 1.6.8 && git push origin 1.6.8` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
 4. workflow 自动构建 → 背书 → 上传三个附件（Release 不存在就自动建一个）
-5. 补发布说明：`gh release edit 1.6.7 --notes "..."`
+5. 补发布说明：`gh release edit 1.6.8 --notes "..."`
 
 本地 `npm run build` 只用于测试和塞进 Vault，不再是分发来源。
 
@@ -364,7 +364,7 @@ npm test        # bundle the tests + run the end-to-end suite
 
 #### Tests
 
-Two suites, **420** assertions in total (`run-test` 223 + `run-dom-test` 197):
+Two suites, **432** assertions in total (`run-test` 228 + `run-dom-test` 204):
 
 - **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
 - **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, and the settings tab (declarative definitions, `visible` predicates, control read/write plus their side effects).
@@ -398,9 +398,9 @@ To release:
 
 1. Bump the version in `manifest.json` / `package.json` / `versions.json` (patch digit only)
 2. `git commit && git push`
-3. `git tag 1.6.7 && git push origin 1.6.7` — the **tag must match `manifest.json`'s `version` exactly, with no `v` prefix** (the directory enforces this; `.github/workflows/release.yml` checks it first and fails fast)
+3. `git tag 1.6.8 && git push origin 1.6.8` — the **tag must match `manifest.json`'s `version` exactly, with no `v` prefix** (the directory enforces this; `.github/workflows/release.yml` checks it first and fails fast)
 4. The workflow builds → attests → uploads the three assets (creating the release if needed)
-5. Add release notes: `gh release edit 1.6.7 --notes "..."`
+5. Add release notes: `gh release edit 1.6.8 --notes "..."`
 
 A local `npm run build` is for testing and sideloading into your vault — it is no longer the distribution source.
 

@@ -1322,6 +1322,50 @@ async function main(): Promise<void> {
       /\.pf-media:hover\s+\.pf-arrow\.pf-arrow-off\s*\{[^}]*opacity:\s*0/.test(css) &&
         /\.pf-arrow\.pf-arrow-off\s*\{[^}]*pointer-events:\s*none/.test(css)
     );
+
+    // ── Lightbox 关闭按钮：手机端「看得见却点不到」的回归 ──
+    // 两个叠加的坑：
+    //  1) 大图是 fixed 全屏遮罩，移动端视口包含状态栏/刘海，写死 top: 14px 会正好落在
+    //     系统状态栏下面 —— 触摸事件被系统吃掉，按钮完全点不到；
+    //  2) 竖构图大图会一路顶到屏幕顶部，视觉上把按钮糊住（手指点下去先碰到图片）。
+    const lbClose = /\.pf-lb-close\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    check(
+      "关闭按钮让开安全区：top/right 用 env(safe-area-inset-*)，桌面 fallback 0px 行为不变",
+      /top:\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*14px\)/.test(lbClose) &&
+        /right:\s*calc\(env\(safe-area-inset-right,\s*0px\)\s*\+\s*16px\)/.test(lbClose) &&
+        !/!important/.test(lbClose),
+      lbClose.replace(/\s+/g, " ").trim()
+    );
+    check(
+      "关闭按钮层级高于左右切换按钮（永远可点）",
+      /z-index:\s*5/.test(lbClose) && /\.pf-lb-nav\s*\{[^}]*z-index:\s*3/.test(css)
+    );
+
+    const mobileLbClose = /@media \(max-width: 640px\)[\s\S]*?\.pf-lb-close\s*\{([^}]*)\}/.exec(
+      css
+    )?.[1] ?? "";
+    const mobileLbStage = /@media \(max-width: 640px\)[\s\S]*?\.pf-lb-stage\s*\{([^}]*)\}/.exec(
+      css
+    )?.[1] ?? "";
+    check(
+      "窄屏关闭按钮撑到 44px 触摸目标，并同样让开安全区",
+      /width:\s*44px/.test(mobileLbClose) &&
+        /height:\s*44px/.test(mobileLbClose) &&
+        /top:\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*16px\)/.test(mobileLbClose),
+      mobileLbClose.replace(/\s+/g, " ").trim()
+    );
+    check(
+      "窄屏图片顶部留白（安全区 + 68px）＞ 关闭按钮下边缘（安全区 + 60px），大图不会顶到按钮上",
+      /padding:\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*68px\)/.test(mobileLbStage),
+      mobileLbStage.replace(/\s+/g, " ").trim()
+    );
+
+    // ── 初始化失败面板：不能是「一片空白」 ──
+    check(
+      "初始化失败面板的重试按钮同样前缀提权（Obsidian 的 button 默认灰底会压过单类名）",
+      /\.pf-init-error\s+\.pf-init-error-btn\s*\{/.test(css) &&
+        /\.pf-init-error\s+\.pf-init-error-btn:hover\s*\{/.test(css)
+    );
   }
 
   // ───────── 10. 来源显示名 = 文件夹末级名（派生值，不存盘）─────────

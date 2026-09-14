@@ -329,6 +329,14 @@ export class App {
 /** 只够让 openPostSource / 视图跑起来的 workspace */
 export class Workspace {
   app: App;
+  /**
+   * 工作区布局是否就绪（@since 0.9.7）。
+   * 默认 true = 测试环境的常态（布局早就好了）；要验证「冷启动时视图先于布局恢复」
+   * 这条时序，先 `markLayoutNotReady()`，之后 `markLayoutReady()` 手动放行挂起的回调。
+   */
+  layoutReady = true;
+  private layoutPending: (() => void)[] = [];
+
   constructor(app: App) {
     this.app = app;
   }
@@ -345,7 +353,19 @@ export class Workspace {
     return Promise.resolve();
   }
   onLayoutReady(cb: () => void): void {
-    cb();
+    if (this.layoutReady) cb();
+    else this.layoutPending.push(cb);
+  }
+  /** 测试用：模拟「布局还没就绪」（移动端冷启动恢复视图的时刻） */
+  markLayoutNotReady(): void {
+    this.layoutReady = false;
+  }
+  /** 测试用：布局就绪，放行之前挂起的回调 */
+  markLayoutReady(): void {
+    this.layoutReady = true;
+    const pending = this.layoutPending;
+    this.layoutPending = [];
+    for (const cb of pending) cb();
   }
 }
 

@@ -59,6 +59,8 @@ export class PhotoFeedView extends ItemView {
 
   private feed!: Feed;
   private built = false;
+  /** 初始化失败后是否已经借「布局就绪」重试过一次（防死循环） */
+  private readyRetried = false;
   private currentPosts: FeedPost[] = [];
   private filter: FilterState = freshFilter();
   private indexListener = (source: "settings" | "index"): void => this.onIndexChanged(source);
@@ -85,35 +87,103 @@ export class PhotoFeedView extends ItemView {
     this.contentEl.addClass("pf-view-content");
     // 先恢复上次的筛选，再建 DOM：chips 是在 buildFilterPanel 里按 filter 生成的
     this.filter = this.loadFilter();
-    this.buildSkeleton();
 
-    this.feed = new Feed(
-      this.feedEl,
-      this.app,
-      {
-        onOpenPhoto: (post, index) => this.openLightbox(post, index),
-        onOpenFile: (post) => void openPostSource(this.app, post),
-      },
-      this.feedConfig()
-    );
-    this.feed.setEmptyText(
-      "还没有照片。点右下角 ＋ 发布照片或视频，或去设置里配置「来源文件夹」。"
-    );
+    /**
+     * 骨架 + Feed 放进 try：
+     * 移动端「划掉后台再重启」时，Obsidian 会在很早的阶段恢复上次的标签页 ——
+     * 这一步里任何一次抛异常，整个视界标签页就会变成一片空白（而且没有任何提示，看起来像
+     * 「插件坏了」）。兜住它，失败时给一块能读的错误面板，而不是留白。
+     */
+    try {
+      this.buildSkeleton();
 
-    // 点面板/按钮以外的地方、按 Esc → 收起筛选面板
-    this.registerDomEvent(document, "click", (e) => {
-      if (!this.panelOpen()) return;
-      const t = e.target as Node | null;
-      if (t && (this.panelEl.contains(t) || this.filterFab.contains(t))) return;
-      this.closePanel();
-    });
-    this.registerDomEvent(document, "keydown", (e) => {
-      if (e.key === "Escape") this.closePanel();
-    });
+      this.feed = new Feed(
+        this.feedEl,
+        this.app,
+        {
+          onOpenPhoto: (post, index) => this.openLightbox(post, index),
+          onOpenFile: (post) => void openPostSource(this.app, post),
+        },
+        this.feedConfig()
+      );
+      this.feed.setEmptyText(
+        "还没有照片。点右下角 ＋ 发布照片或视频，或去设置里配置「来源文件夹」。"
+      );
+
+      // 点面板/按钮以外的地方、按 Esc → 收起筛选面板
+      this.registerDomEvent(document, "click", (e) => {
+        if (!this.panelOpen()) return;
+        const t = e.target as Node | null;
+        if (t && (this.panelEl.contains(t) || this.filterFab.contains(t))) return;
+        this.closePanel();
+      });
+      this.registerDomEvent(document, "keydown", (e) => {
+        if (e.key === "Escape") this.closePanel();
+      });
+    } catch (e) {
+      this.showInitError(e);
+      // 失败也可能只是「app 还没起来」（冷启动恢复标签页时宿主 API 尚不可用）：
+      // 挂上兜底，等布局就绪自动重试一次，别让用户自己去关标签页再开。
+      this.armLayoutFallback();
+      return;
+    }
 
     this.built = true;
     this.plugin.onIndexChanged(this.indexListener);
-    this.render();
+
+    try {
+      this.render();
+    } catch (e) {
+      // 骨架已经建好了：错误面板插在内容区，索引后续刷新仍有机会自愈
+      this.showInitError(e);
+      this.armLayoutFallback();
+      return;
+    }
+
+    // 冷启动才需要补渲染：已经就绪的常规打开不注册，零额外开销
+    if (!this.app.workspace.layoutReady) this.armLayoutFallback();
+  }
+
+  /**
+   * 工作区布局就绪后的兜底（只做两件小事）：
+   *  - 视图已经建好 → 再渲染一次。冷启动时视图可能**先于**布局就绪被恢复，
+   *    首帧是在「容器还没量出高度、事件链还没走完」的阶段渲染的，容易留个空壳；
+   *  - 视图没建起来 → 自动重试一次初始化（宿主这时肯定能用了）。只重试一次，防死循环。
+   */
+  private armLayoutFallback(): void {
+    this.app.workspace.onLayoutReady(() => {
+      if (this.built) {
+        this.render();
+        return;
+      }
+      if (this.readyRetried) return;
+      this.readyRetried = true;
+      void this.onOpen();
+    });
+  }
+
+  /** 初始化失败：给一块可读的错误面板 + 重试，别让用户对着空白标签页猜 */
+  private showInitError(e: unknown): void {
+    console.error("[视界] 视图初始化失败", e);
+    // 自动重试可能失败多次，旧面板先撤掉，别叠成一摞
+    for (const old of Array.from(this.contentEl.querySelectorAll(".pf-init-error"))) old.remove();
+    const box = this.contentEl.createDiv({ cls: "pf-init-error" });
+    box.createDiv({ cls: "pf-init-error-title", text: "视界加载失败" });
+    box.createDiv({
+      cls: "pf-init-error-msg",
+      text: e instanceof Error ? e.message : String(e),
+    });
+    const retry = box.createEl("button", {
+      cls: "pf-init-error-btn",
+      text: "重试",
+      attr: { type: "button" },
+    });
+    retry.addEventListener("click", () => {
+      // 上一次可能已经注册过监听，先摘掉再重来，避免重复
+      this.plugin.offIndexChanged(this.indexListener);
+      this.built = false;
+      void this.onOpen();
+    });
   }
 
   async onClose(): Promise<void> {
@@ -270,7 +340,14 @@ export class PhotoFeedView extends ItemView {
 
   /** 读回上次的筛选：字段逐个校验，坏数据一律退回默认值（改过格式的旧存档也不怕） */
   private loadFilter(): FilterState {
-    const raw = this.app.loadLocalStorage(FILTER_STORE_KEY);
+    // 本地存储走的是宿主实现，读失败（极旧版本没有这个 API / 宿主异常）不该拖垮整个视图
+    let raw: unknown = null;
+    try {
+      raw = this.app.loadLocalStorage(FILTER_STORE_KEY);
+    } catch (e) {
+      console.warn("[视界] 读取筛选状态失败，按默认处理", e);
+      return freshFilter();
+    }
     if (!raw || typeof raw !== "object") return freshFilter();
     const o = raw as Record<string, unknown>;
     return {
@@ -284,7 +361,12 @@ export class PhotoFeedView extends ItemView {
   }
 
   private saveFilter(): void {
-    this.app.saveLocalStorage(FILTER_STORE_KEY, this.filter);
+    try {
+      this.app.saveLocalStorage(FILTER_STORE_KEY, this.filter);
+    } catch (e) {
+      // 存不下最多是「下次打开不记得筛选」，不该影响本次操作
+      console.warn("[视界] 保存筛选状态失败", e);
+    }
   }
 
   /**
