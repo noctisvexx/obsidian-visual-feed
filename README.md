@@ -34,7 +34,7 @@
 
 
 - **网格瀑布流** —— 多列自动铺满，瓦片**固定正方形**、裁切填满，一屏能扫很多张。瓦片模式下正文和来源整块都不渲染（不是藏起来），照片再多也不卡。默认**每张照片一格**：一条记录里的照片全部摊开，各占一格；不想打散就切成**每条记录一格**（多图在格子里左右滑）。格子上不叠任何东西 —— 没有张数角标、没有图标，只有照片本身。
- <img width="1920" height="1032" alt="Image_2026-09-14_07-35-53_klhkpj5c lwy" src="https://github.com/user-attachments/assets/551106ed-1d20-4d68-82f6-c84fe1d5a666" />
+  <img width="1920" height="1032" alt="Image_2026-09-14_07-35-53_klhkpj5c lwy" src="https://github.com/user-attachments/assets/551106ed-1d20-4d68-82f6-c84fe1d5a666" />
 
 
 两种布局共用同一套**分批渲染**：首屏只渲染一批，滚动到哨兵才追加下一批，提前 1200px 预载。上千张照片也不会一次性塞进 DOM。
@@ -241,7 +241,12 @@ Visual Feed does not change your folder structure, and it does not ask you to mo
 The bottom-left button flips between them, and the choice is remembered:
 
 - **Single-column feed** — Instagram style. Big photos, with the note text and source underneath, one record after another.
+  <img width="1920" height="1032" alt="Image_2026-09-14_07-35-11_z5x00glh ynu" src="https://github.com/user-attachments/assets/69ba1018-2a44-4fba-b654-0a7bbd73fafa" />
+  <img width="1920" height="1032" alt="Image_2026-09-14_07-35-25_fhyzxqcp znd" src="https://github.com/user-attachments/assets/561d8136-89ac-49cd-b10d-0965391e6bed" />
+  <img width="1920" height="1032" alt="Image_2026-09-14_07-35-47_tyksnu2c ew5" src="https://github.com/user-attachments/assets/a8dd8db0-f3f2-4dd6-82d3-c72a7e1fbd7d" />
+
 - **Masonry grid** — multiple columns that fill the width, tiles **locked to squares** and cropped to fill, so a whole screenful is scannable at once. In grid mode captions and sources are not rendered at all (not merely hidden), so it stays smooth no matter how many photos you have. The default is **one tile per photo** — every photo in a record gets its own tile; switch to **one tile per record** to keep them together (swipe between images inside the tile). Nothing is overlaid on the tiles — no count badge, no icon, just the photo itself.
+  <img width="1920" height="1032" alt="Image_2026-09-14_07-35-53_klhkpj5c lwy" src="https://github.com/user-attachments/assets/551106ed-1d20-4d68-82f6-c84fe1d5a666" />
 
 Both layouts share the same **batched rendering**: only one batch on first paint, the next appended once a sentinel scrolls into view, prefetched 1200px ahead. Thousands of photos never all land in the DOM at once.
 
