@@ -145,7 +145,9 @@
 ## 工作原理
 
 - **索引**：扫描来源文件夹里的 Markdown，解析出每处媒体引用（`![[...]]`、`![](...)`、HTML 标签），按 `record` 或 `file` 分组记录成 Post。索引持久化在插件的 `data.json` 里。
-- **增量**：启动时对比每个文件的 `mtime` + `size`，只有变过的才重新解析；没变化时零读文件。索引结构演进用可选字段 + 兜底函数，**不需要为了升级插件而重建全库**。
+- **增量**：启动时对比每个文件的 `mtime` + `size`，只有变过的才重新解析；没变化时零读文件。
+- **图片「迟到」自动补**：解析笔记时图片还没到（跨设备同步的常态），这条引用不会被丢掉，而是记进索引里的「待定引用表」；图片一出现，只重解析**等它的那几篇**笔记，不重建全库。Obsidian 关着的时候图片才同步进来的，启动时按同一张表补扫一次（常态下读 0 个文件）。
+- **索引结构演进**：尽量用可选字段 + 兜底函数免重建；实在补不回来的（1.6.9 给索引加了待定引用表）才升一次 `INDEX_VERSION`，升级后自动重建一次，不用手动点。
 - **不碰原笔记**：除了「发布」这一个显式动作会写你自己指定的目标文件，其余全部只读。不复制媒体、不生成缩略图、不移动文件。
 - **媒体引用**：使用 Obsidian 原生的 `app://local/` 资源地址直接引用库内文件，远程图片（`https://`）也能显示。
 - **主题**：所有颜色走 Obsidian 主题变量，深色 / 浅色自动适配；移动端会避开原生底部导航栏和键盘工具栏，并遵守 `prefers-reduced-motion`。
@@ -164,7 +166,7 @@ npm test        # 打包测试 + 跑端到端测试
 
 ### 测试
 
-两套测试，加起来 **432** 项断言（`run-test` 228 + `run-dom-test` 204）：
+两套测试，加起来 **449** 项断言（`run-test` 244 + `run-dom-test` 205）：
 
 - **`test/run-test.ts`** —— 真实 Vault 端到端。对着一个真实的 Obsidian 库跑全量索引，断言 Post/媒体数量、日期合法性、**增量读取次数**（没变化时应该是 0 次读文件）、增删改后的正确性、发布写入端到端，以及一批纯 CSS 回归断言（jsdom 量不了布局，所以直接对 `styles.css` 源码做文本断言）。
 - **`test/run-dom-test.ts`** —— jsdom UI 冒烟。轮播、懒加载、分批渲染、Lightbox、筛选面板、发布弹窗、布局切换、设置页（声明式定义的渲染 / 显隐谓词 / 读写与副作用）。
@@ -197,9 +199,9 @@ gh attestation verify main.js --owner noctisvexx
 
 1. 改 `manifest.json` / `package.json` / `versions.json` 里的版本号（补丁位递推）
 2. `git commit && git push`
-3. `git tag 1.6.8 && git push origin 1.6.8` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
+3. `git tag 1.6.9 && git push origin 1.6.9` —— **tag 必须与 `manifest.json` 的 `version` 一字不差，且不带 `v` 前缀**（社区市场硬校验；`.github/workflows/release.yml` 会先做一次自检，对不上直接失败）
 4. workflow 自动构建 → 背书 → 上传三个附件（Release 不存在就自动建一个）
-5. 补发布说明：`gh release edit 1.6.8 --notes "..."`
+5. 补发布说明：`gh release edit 1.6.9 --notes "..."`
 
 本地 `npm run build` 只用于测试和塞进 Vault，不再是分发来源。
 
@@ -325,7 +327,7 @@ If you have [BRAT](https://github.com/TfTHacker/obsidian42-brat) installed, simp
 3. Run the "Rebuild Visual Feed index" command once
 4. Click the image icon in the left ribbon (or run the "Open Visual Feed" command)
 
-After that, **creating / modifying / deleting / renaming** files inside Obsidian updates the index incrementally — no manual rebuild needed.
+After that, **creating / modifying / deleting / renaming** files inside Obsidian updates the index incrementally — no manual rebuild needed. **Images that arrive later from another device are picked up automatically too** — even if the image lands after the note, or arrives while Obsidian was closed.
 
 ---
 
@@ -358,7 +360,9 @@ After that, **creating / modifying / deleting / renaming** files inside Obsidian
 
 - **Index**: scans the Markdown inside the source folders, parses every media reference (`![[...]]`, `![](...)`, HTML tags), and groups them into posts by `record` or `file`. The index is persisted in the plugin's `data.json`.
 - **Segmentation (two independent layers)**: the **media reference** decides *which media exists*; the **timestamp** decides *which post a media item belongs to*; fixed heading names take no part in the core parsing. Only a valid 24-hour `- HH:MM` / `### HH:MM` timestamp counts (`25:80` does not), and a stray "12:56" mentioned mid-sentence does not either — it has to be a timestamp structure at the start of a line. The whole file is cut into blocks in order of appearance, so list items and headings mixed together are handled in file order; a file with no timestamp at all becomes a single file-level post (so a file that is only Frontmatter, with no fixed headings, is never dropped).
-- **Incremental**: on startup each file's `mtime` + `size` is compared and only changed files are re-parsed; when nothing changed, zero files are read. Index schema changes are handled with optional fields plus fallbacks, so **upgrading the plugin never requires a full rebuild**.
+- **Incremental**: on startup each file's `mtime` + `size` is compared and only changed files are re-parsed; when nothing changed, zero files are read.
+- **Late-arriving media**: when a note is parsed before its images have landed (the normal case with cross-device sync), the unresolved reference is not dropped — it goes into a pending-reference table inside the index. The moment the image shows up, only the notes waiting for it are re-parsed; no full rebuild. Images synced while Obsidian was closed are swept the same way at startup (zero file reads in the common case).
+- **Index schema evolution**: optional fields plus fallbacks are used wherever possible; a change that cannot be backfilled (1.6.9 added the pending-reference table) bumps `INDEX_VERSION` and rebuilds once, automatically, right after the upgrade.
 - **Never touches your notes**: apart from the explicit "publish" action writing the target file you chose, everything is read-only. Media is not copied, thumbnails are not generated, files are not moved.
 - **Media references**: uses Obsidian's native `app://local/` resource URLs to reference vault files directly; remote images (`https://`) work too.
 - **Theming**: every colour goes through Obsidian theme variables and adapts to dark / light automatically; on mobile the layout avoids the native bottom navbar and keyboard toolbar, and it respects `prefers-reduced-motion`.
@@ -377,7 +381,7 @@ npm test        # bundle the tests + run the end-to-end suite
 
 #### Tests
 
-Two suites, **432** assertions in total (`run-test` 228 + `run-dom-test` 204):
+Two suites, **449** assertions in total (`run-test` 244 + `run-dom-test` 205):
 
 - **`test/run-test.ts`** — real-vault end to end. Runs a full index pass against a real Obsidian vault and asserts post/media counts, date validity, **incremental read counts** (0 file reads when nothing changed), correctness after create/modify/delete, the publish write path end to end, plus a set of pure CSS regression assertions (jsdom cannot measure layout, so `styles.css` is asserted as source text).
 - **`test/run-dom-test.ts`** — jsdom UI smoke tests. Carousel, lazy loading, batched rendering, lightbox, filter panel, publish modal, layout switching, and the settings tab (declarative definitions, `visible` predicates, control read/write plus their side effects).

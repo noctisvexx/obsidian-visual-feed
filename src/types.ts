@@ -115,6 +115,17 @@ export interface FeedIndex {
   files: Record<string, FileStat>;
   /** 全部 Post */
   posts: FeedPost[];
+  /**
+   * 「待定引用」表：md 路径 → 该文件里**暂时解析不到**的本地媒体链接名（小写）。
+   *
+   * 为什么必须有它：解析一篇 md 时如果图片还没到（同步场景的常态），
+   * resolvePhoto 返回 null、这条引用就被丢掉了 —— 索引里再也看不出「谁在等这张图」。
+   * 于是图片真的到达时，增量逻辑匹配不到任何 Post，只能靠手动重建索引。
+   * 记下待定引用后，图片一出现就能精确重解析那几篇 md。
+   *
+   * 只记「扩展名是插件支持的图片/视频」的引用，`![[某篇笔记]]` 这类嵌入不进表。
+   */
+  pending?: Record<string, string[]>;
 }
 
 export interface PhotoFeedSettings {
@@ -158,7 +169,11 @@ export interface PhotoFeedSettings {
   autoAddSource: boolean;
 }
 
-export const INDEX_VERSION = 1;
+/**
+ * 索引结构版本。任何影响「索引里存了什么」的改动都必须 +1
+ *  → 升级后自动重建一次（1 → 2：新增 FeedIndex.pending 待定引用表）。
+ */
+export const INDEX_VERSION = 2;
 
 /** 支持的图片扩展名 */
 export const IMAGE_EXT = new Set([

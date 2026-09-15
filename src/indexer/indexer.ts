@@ -1,7 +1,7 @@
 import { App, TFile, TFolder, normalizePath } from "obsidian";
 import type { FeedIndex, FeedPost, SourceFolder } from "../types";
 import { INDEX_VERSION, isMediaExt } from "../types";
-import { buildPosts } from "./parse";
+import { parseFile, resolveLocalMedia } from "./parse";
 import type PhotoFeedPlugin from "../main";
 
 /** 全量扫描时并发读取正文的批次（移动端内存友好） */
@@ -10,6 +10,8 @@ const CHUNK = 12;
 const SAVE_DEBOUNCE = 400;
 /** 文件变更批量防抖 ms（一次导入多个文件时合并处理） */
 const FLUSH_DEBOUNCE = 250;
+/** 待定引用重查防抖 ms（同步批量落盘时 metadataCache 会连续触发 resolved） */
+const SWEEP_DEBOUNCE = 800;
 
 /**
  * 照片索引器：
@@ -17,6 +19,7 @@ const FLUSH_DEBOUNCE = 250;
  *  - refreshChanged：启动时用 mtime + size 与持久化索引对比，只重处理变化的文件（保证秒开）
  *  - 事件驱动增量：create / modify / delete / rename 只处理对应文件
  *  - 图片文件变化：只重解析引用了它的 Markdown
+ *  - 图片「迟到」（同步场景）：靠 FeedIndex.pending 待定引用表找回引用它的 md，只重解析那几篇
  *  - 索引持久化在插件 data 目录，重启不丢
  */
 export class Indexer {
@@ -26,6 +29,7 @@ export class Indexer {
 
   private saveTimer: number | null = null;
   private flushTimer: number | null = null;
+  private sweepTimer: number | null = null;
   private pendingPaths = new Set<string>();
   private itemDirty = false;
   /**
@@ -42,7 +46,7 @@ export class Indexer {
     this.index =
       existing && existing.version === INDEX_VERSION
         ? existing
-        : { version: INDEX_VERSION, files: {}, posts: [] };
+        : { version: INDEX_VERSION, files: {}, posts: [], pending: {} };
   }
 
   /** 索引是否为空（用于决定首次全量还是增量） */
@@ -153,7 +157,7 @@ export class Indexer {
     if (this.building) return;
     this.building = true;
     try {
-      this.index = { version: INDEX_VERSION, files: {}, posts: [] };
+      this.index = { version: INDEX_VERSION, files: {}, posts: [], pending: {} };
       const files = await this.listAllMdFiles();
       for (let i = 0; i < files.length; i += CHUNK) {
         const chunk = files.slice(i, i + CHUNK);
@@ -312,10 +316,15 @@ export class Indexer {
       this.pendingPaths.delete(p);
       this.removeFile(p);
     }
-    // 兜底：files 里没有但 posts 里有的残留（正常不会出现）
+    // 兜底：files / pending 里没有但 posts 里有的残留（正常不会出现）
     if (orphans) {
       this.index.posts = this.index.posts.filter((p) => !under(p.file));
       this.itemDirty = true;
+    }
+    if (this.index.pending) {
+      for (const p of Object.keys(this.index.pending)) {
+        if (under(p)) delete this.index.pending[p];
+      }
     }
     this.removedDirty = true;
     this.scheduleFlush();
@@ -329,6 +338,12 @@ export class Indexer {
   /**
    * 图片 / 视频文件变化（新增 / 删除 / 改名）：
    * 只重解析引用了该媒体的 Markdown，而不是全量重建。
+   *
+   * 两条线索都要看：
+   *  1. 索引里已经有 Post 引用了它 → 重解析那篇 md（删除 / 改名 / 覆盖时用）；
+   *  2. 没人引用它，但某篇 md 的「待定引用」里正等着这个名字 → 就是它！
+   *     （另一种设备同步过来时，图片常常比 md 晚到一步：解析 md 时图还不存在，
+   *     引用被丢掉、索引里根本看不出谁在等 —— 只靠第 1 条会永远匹配不到。）
    */
   private handleMediaChange(file: { path: string; extension: string }): void {
     if (!isMediaExt(file.extension || "")) return;
@@ -340,7 +355,81 @@ export class Indexer {
         hit = true;
       }
     }
+    for (const md of this.matchPending(target)) {
+      this.pendingPaths.add(md);
+      hit = true;
+    }
     if (hit) this.scheduleFlush();
+  }
+
+  /**
+   * 待定引用表里「正在等这个文件」的 md。
+   * 链接可能写的是纯文件名（`![[img.jpg]]`，本库约定）也可能是库内路径，
+   * 所以按「完整路径」和「末级文件名」两种写法各匹配一次。
+   */
+  private matchPending(targetPath: string): string[] {
+    const pending = this.index.pending;
+    if (!pending) return [];
+    const full = targetPath.toLowerCase();
+    const base = (targetPath.split("/").pop() ?? "").toLowerCase();
+    if (!full && !base) return [];
+    const out: string[] = [];
+    for (const md of Object.keys(pending)) {
+      if (pending[md].some((r) => r === full || r === base)) out.push(md);
+    }
+    return out;
+  }
+
+  /**
+   * 重查「待定引用」：链接现在能解析出来了（图片同步到了）就把对应 md 重解析一遍。
+   * 启动时跑一次，另外 metadataCache 报 resolved 时防抖跑一次 —— 覆盖
+   * 「Obsidian 关着的时候别的设备把图片同步进来」这种情况（md 本身没变，
+   * 启动对比发现不了，以前只能手动重建索引）。
+   *
+   * 成本：待定条目数的几次链接查询（不读文件）；一个都解析不出来时读 0 个文件、不落盘。
+   */
+  async sweepPending(): Promise<boolean> {
+    const pending = this.index.pending;
+    if (!pending) return false;
+    const paths = Object.keys(pending);
+    if (!paths.length) return false;
+    let hit = false;
+    for (const mdPath of paths) {
+      const f = this.app.vault.getAbstractFileByPath(normalizePath(mdPath));
+      // 文件没了：留给 refreshChanged / 删除事件清理，这里不重复做删除
+      if (!(f instanceof TFile) || !this.shouldIndex(f)) continue;
+      if (!pending[mdPath].some((r) => resolveLocalMedia(this.app, r, mdPath))) continue;
+      this.pendingPaths.add(mdPath);
+      hit = true;
+    }
+    if (!hit) return false;
+    await this.flush();
+    return true;
+  }
+
+  /** 待定引用重查的防抖入口（metadataCache 在同步批量落盘时会连着触发） */
+  scheduleSweep(): void {
+    const pending = this.index.pending;
+    if (!pending || !Object.keys(pending).length) return;
+    if (this.sweepTimer !== null) window.clearTimeout(this.sweepTimer);
+    this.sweepTimer = window.setTimeout(() => {
+      this.sweepTimer = null;
+      void this.sweepPending();
+    }, SWEEP_DEBOUNCE);
+  }
+
+  /**
+   * metadataCache 刚解析完一篇 md：它身上还挂着待定引用就重解析一次
+   * （链接缓存可能才建好 —— 我们读文件早于 Obsidian 建好链接解析时会出现）。
+   * 不在待定表里的文件直接返回，成本就是一次查表。
+   */
+  handleLinkResolved(file: { path: string }): void {
+    const pending = this.index.pending;
+    if (!pending) return;
+    const p = normalizePath(file.path);
+    if (!pending[p]) return;
+    this.pendingPaths.add(p);
+    this.scheduleFlush();
   }
 
   private scheduleFlush(): void {
@@ -373,8 +462,9 @@ export class Indexer {
 
   private applyParsed(file: TFile, source: SourceFolder, body: string): void {
     let posts: FeedPost[] = [];
+    let pending: string[] = [];
     try {
-      posts = buildPosts(
+      const parsed = parseFile(
         this.app,
         file,
         body,
@@ -382,11 +472,18 @@ export class Indexer {
         this.plugin.settings.groupBy,
         this.plugin.settings.captionChars
       );
+      posts = parsed.posts;
+      pending = parsed.pending;
     } catch (e) {
       console.error(`照片流：解析失败 ${file.path}`, e);
-      posts = [];
     }
-    this.replaceFile(file.path, file.stat.mtime, file.stat.size, posts);
+    this.replaceFile(file.path, file.stat.mtime, file.stat.size, posts, pending);
+  }
+
+  /** 待定引用表（老索引可能没有这个字段，就地补上） */
+  private pendingMap(): Record<string, string[]> {
+    if (!this.index.pending) this.index.pending = {};
+    return this.index.pending;
   }
 
   /**
@@ -397,7 +494,13 @@ export class Indexer {
    * 注意：无论有没有照片都要记录 stat —— 否则无图文件每次启动都会被
    * 当成「新文件」重新读取（首次全量后启动仍要读几百个文件）。
    */
-  private replaceFile(path: string, mtime: number, size: number, posts: FeedPost[]): void {
+  private replaceFile(
+    path: string,
+    mtime: number,
+    size: number,
+    posts: FeedPost[],
+    pending: string[] = []
+  ): void {
     const old = this.index.posts.filter((p) => p.file === path);
     const same =
       old.length === posts.length &&
@@ -407,6 +510,9 @@ export class Indexer {
       if (posts.length) this.index.posts.push(...posts);
       this.itemDirty = true;
     }
+    const store = this.pendingMap();
+    if (pending.length) store[path] = pending;
+    else delete store[path];
     this.index.files[path] = { mtime, size };
   }
 
@@ -417,6 +523,7 @@ export class Indexer {
       this.itemDirty = true;
     }
     delete this.index.files[path];
+    if (this.index.pending) delete this.index.pending[path];
   }
 
   /**

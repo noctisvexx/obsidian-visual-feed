@@ -31,7 +31,7 @@ import {
   normalizeRatioSettings,
   normalizeSources,
 } from "../src/settings";
-import { isMediaExt, isVideoExt, kindOf, type PhotoFeedSettings, type SourceFolder } from "../src/types";
+import { isMediaExt, isVideoExt, kindOf, type FeedPost, type PhotoFeedSettings, type SourceFolder } from "../src/types";
 import { cleanRecordText, extractImageRefs } from "../src/utils/text";
 import {
   DEFAULT_FRAME_RATIO,
@@ -414,6 +414,118 @@ async function main(): Promise<void> {
   } else {
     check("找到可用于测试的本地照片", false);
   }
+
+  // ───────── 4b. 图片比 md 晚到（跨设备同步）→ 自动补上，不用重建索引 ─────────
+  // 场景：另一台设备先同步出 md、图片晚一步到；或者 Obsidian 关着的时候图片才同步进来。
+  // 解析 md 时图片不存在 → 这条引用以前被彻底丢掉，索引里看不出「谁在等这张图」，
+  // 于是图片到达也匹配不到任何 Post，只能手动重建索引。
+  const lateImg = `${FX_DIR}/fx-late.jpg`;
+  const lateMd = `${sources[0].path}/9998-late.md`;
+  const latePending = (md: string): string[] => indexer.index.pending?.[md] ?? [];
+  app.vault.upsertExtra(
+    lateMd,
+    [
+      "---",
+      "date: 2026-09-10T07:10:00",
+      "---",
+      "",
+      `- 07:10 先到的那张 ![[${FX.img1}]]`,
+      "- 07:20 这张图还在路上 ![[fx-late.jpg]]",
+      "- 07:30 这不是图，别记进待定表 ![[某个不存在的嵌入]]",
+      "",
+    ].join("\n")
+  );
+  indexer.handleChange(app.vault.getAbstractFileByPath(lateMd) as TFile);
+  await sleep(500);
+  const latePosts = (): FeedPost[] => indexer.getPosts().filter((p) => p.file === lateMd);
+  check(
+    "图片没到：先到的那张照常进索引",
+    latePosts().length === 1 && latePosts()[0].photos.length === 1,
+    `实际 ${latePosts().length} 条 / ${latePosts()[0]?.photos.length} 张`
+  );
+  check(
+    "图片没到：引用被记进「待定引用表」（以前是直接丢掉）",
+    latePending(lateMd).join(",") === "fx-late.jpg",
+    JSON.stringify(latePending(lateMd))
+  );
+  check(
+    "非媒体扩展名的嵌入不进待定表（否则每次启动都白查）",
+    !latePending(lateMd).some((r) => r.includes("嵌入")),
+    JSON.stringify(latePending(lateMd))
+  );
+
+  // A) 运行中同步进来：图片 create 事件 → 精确重解析等它的那篇 md
+  app.vault.upsertExtra(lateImg, "");
+  app.vault.readCount = 0;
+  indexer.handleChange(new TFile(lateImg, { mtime: 1, size: 1 }));
+  await sleep(500);
+  check("图片到达（create 事件）→ 补出第 2 条 Post", latePosts().length === 2, `实际 ${latePosts().length}`);
+  check(
+    "补出来的正是这张图",
+    latePosts().some((p) => p.photos.some((ph) => ph.path === lateImg))
+  );
+  check(
+    "补上之后待定表不再留着这条",
+    latePending(lateMd).length === 0,
+    JSON.stringify(latePending(lateMd))
+  );
+  check(
+    "只重读等这张图的那篇 md（不整库重扫）",
+    app.vault.readCount >= 1 && app.vault.readCount <= 3,
+    `读取 ${app.vault.readCount} 个文件`
+  );
+
+  // B) Obsidian 关着的时候图片才到：md 自身没变、启动对比发现不了 → 靠待定表补扫
+  const lateImg2 = `${FX_DIR}/fx-late2.png`;
+  const lateMd2 = `${sources[0].path}/9998-late2.md`;
+  app.vault.upsertExtra(lateMd2, ["- 08:00 这张也没到 ![[fx-late2.png]]", ""].join("\n"));
+  indexer.handleChange(app.vault.getAbstractFileByPath(lateMd2) as TFile);
+  await sleep(500);
+  const late2Posts = (): FeedPost[] => indexer.getPosts().filter((p) => p.file === lateMd2);
+  check("离线场景：图片还没到 → 该篇暂时没有 Post", late2Posts().length === 0);
+  check(
+    "离线场景：引用进待定表",
+    latePending(lateMd2).join(",") === "fx-late2.png",
+    JSON.stringify(latePending(lateMd2))
+  );
+
+  // 图片「离线」到达：只进 Vault、不发任何事件（等价于重启后的文件系统状态）
+  app.vault.upsertExtra(lateImg2, "");
+  app.vault.readCount = 0;
+  const swept = await indexer.sweepPending();
+  check("启动补扫：待定引用已能解析 → 返回 true", swept === true);
+  check("启动补扫后 Post 自动出现", late2Posts().length === 1, `实际 ${late2Posts().length}`);
+  check("启动补扫只读需要补的那篇", app.vault.readCount <= 3, `读取 ${app.vault.readCount} 个文件`);
+
+  // 没有待定引用时补扫不该读任何文件（启动时的常态 = 0 成本）
+  const pendingLeft = Object.keys(indexer.index.pending ?? {}).length;
+  app.vault.readCount = 0;
+  await indexer.sweepPending();
+  check(
+    "补扫成本 ≤ 待定条目数（不整库重扫）",
+    app.vault.readCount <= pendingLeft,
+    `读取 ${app.vault.readCount} 个文件 / 待定 ${pendingLeft} 条`
+  );
+
+  // 链接解析回调：不在待定表里的文件一次查表就返回，绝不重读
+  const okMd = `${sources[0].path}/9998-ok.md`;
+  app.vault.upsertExtra(okMd, `- 09:00 图本来就在 ![[${FX.img1}]]\n`);
+  indexer.handleChange(app.vault.getAbstractFileByPath(okMd) as TFile);
+  await sleep(500);
+  check("对照篇：图片已存在 → 正常出 Post", indexer.getPosts().filter((p) => p.file === okMd).length === 1);
+  app.vault.readCount = 0;
+  indexer.handleLinkResolved({ path: okMd });
+  await sleep(500);
+  check(
+    "链接解析回调：非待定文件不重读",
+    app.vault.readCount === 0,
+    `读取 ${app.vault.readCount} 个文件`
+  );
+
+  // 收尾：清掉本次合成文件，别影响后面的用例
+  for (const p of [lateMd, lateMd2, okMd, lateImg, lateImg2]) app.vault.removeExtra(p);
+  for (const p of [lateMd, lateMd2, okMd]) indexer.handleDelete(new TFile(p, { mtime: 1, size: 1 }));
+  await sleep(500);
 
   // ───────── 5. 解析器单元校验 ─────────
   const app2 = new App(VAULT_ROOT);

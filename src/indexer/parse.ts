@@ -1,6 +1,6 @@
 import { App, TFile, normalizePath } from "obsidian";
 import type { FeedPost, Photo, SourceFolder } from "../types";
-import { isVideoExt, kindOfExt } from "../types";
+import { isMediaExt, isVideoExt, kindOfExt } from "../types";
 import {
   dateFromPath,
   epochOf,
@@ -168,6 +168,33 @@ export function splitRecords(bodyText: string, baseDate: string, baseTime: strin
 /** `9:05` → `09:05`（时分已是合法 24 小时制，由正则保证） */
 const normTime = (h: string, m: string): string => `${String(Number(h)).padStart(2, "0")}:${m}`;
 
+/** 去掉链接里的锚点 / 查询串、统一分隔符、去掉前导 `/`；空链接返回 '' */
+const cleanLocalLink = (link: string): string => {
+  const clean = link.split("#")[0].split("?")[0].replace(/\\/g, "/").trim();
+  return clean.startsWith("/") ? clean.slice(1) : clean;
+};
+
+/**
+ * 本地媒体链接 → Vault 里真实存在的媒体文件（找不到 / 支持的扩展名之外 → null）。
+ *
+ * 解析器与「图片迟到」的重查逻辑共用这一份判断，避免两处规则漂移
+ * （比如一处认 heic、另一处不认，就会出现「明明解析出来了却不算数」）。
+ */
+export function resolveLocalMedia(app: App, link: string, fromPath: string): TFile | null {
+  const clean = cleanLocalLink(link);
+  if (!clean) return null;
+  const dest = app.metadataCache.getFirstLinkpathDest(clean, fromPath);
+  const found: TFile | null =
+    dest instanceof TFile
+      ? dest
+      : (() => {
+          const f = app.vault.getAbstractFileByPath(normalizePath(clean));
+          return f instanceof TFile ? f : null;
+        })();
+  if (!found || !kindOfExt(found.extension)) return null;
+  return found;
+}
+
 /**
  * 把一条媒体引用解析成 Photo。
  * 本地媒体必须能在 Vault 里找到（metadataCache 链接解析 → 直接路径兜底），
@@ -192,18 +219,9 @@ const resolvePhoto = (
       kind: isVideoExt(ext) ? "video" : "image",
     };
   }
-  let clean = link.split("#")[0].split("?")[0].replace(/\\/g, "/").trim();
-  if (clean.startsWith("/")) clean = clean.slice(1);
+  const clean = cleanLocalLink(link);
   if (!clean) return null;
-
-  const dest = app.metadataCache.getFirstLinkpathDest(clean, fromPath);
-  const found: TFile | null =
-    dest instanceof TFile
-      ? dest
-      : (() => {
-          const f = app.vault.getAbstractFileByPath(normalizePath(clean));
-          return f instanceof TFile ? f : null;
-        })();
+  const found = resolveLocalMedia(app, clean, fromPath);
   if (!found) return null;
   const kind = kindOfExt(found.extension);
   if (!kind) return null;
@@ -218,27 +236,46 @@ const extOfLink = (link: string): string => {
   return idx < 0 ? "" : base.slice(idx + 1).toLowerCase();
 };
 
+/**
+ * 一条「解析不到」的本地引用是否值得记为待定（返回规范化后的键，不值得则返回 ''）。
+ * 只认扩展名是插件支持的图片/视频：`![[某篇笔记]]` 这种嵌入永远不会变成媒体，
+ * 记进表里只会让它每次启动都被白查一遍。
+ */
+const pendingKeyOf = (link: string): string => {
+  const clean = cleanLocalLink(link);
+  if (!clean) return "";
+  if (!isMediaExt(extOfLink(clean))) return "";
+  return clean.toLowerCase();
+};
+
 const photoKey = (p: Photo): string => (p.remote ? p.path : p.path.toLowerCase());
 
+/** 一篇 md 的解析结果 */
+export interface ParsedFile {
+  posts: FeedPost[];
+  /** 暂时解析不到的本地媒体链接名（小写、去重）—— 见 FeedIndex.pending */
+  pending: string[];
+}
+
 /**
- * 解析一篇 Markdown → Post 列表（只保留含图片的记录）。
+ * 解析一篇 Markdown → Post 列表（只保留含图片的记录）+ 待定引用表。
  * groupBy = "record"：每条记录一个 Post（推荐）；
  * groupBy = "file"：整篇文件的图片合成一个 Post。
  */
-export function buildPosts(
+export function parseFile(
   app: App,
   file: TFile,
   bodyRaw: string,
   source: SourceFolder,
   groupBy: "record" | "file",
   captionChars: number
-): FeedPost[] {
+): ParsedFile {
   let records: ParsedRecord[];
   try {
     records = parseRecords(app, file, bodyRaw);
   } catch (e) {
     console.error(`照片流：解析失败 ${file.path}`, e);
-    return [];
+    return { posts: [], pending: [] };
   }
 
   if (groupBy === "file") {
@@ -246,13 +283,19 @@ export function buildPosts(
     records = merged ? [merged] : [];
   }
 
+  /** 解析不出来的本地媒体引用：图片可能还在路上（别的设备刚同步过来） */
+  const pending = new Set<string>();
   const out: FeedPost[] = [];
   records.forEach((rec, idx) => {
     const photos: Photo[] = [];
     const seen = new Set<string>();
     for (const ref of rec.images) {
       const p = resolvePhoto(app, ref, file.path);
-      if (!p) continue;
+      if (!p) {
+        const key = pendingKeyOf(ref.link);
+        if (key) pending.add(key);
+        continue;
+      }
       const k = photoKey(p);
       if (seen.has(k)) continue;
       seen.add(k);
@@ -277,7 +320,19 @@ export function buildPosts(
       photos,
     });
   });
-  return out;
+  return { posts: out, pending: [...pending] };
+}
+
+/** 只要 Post 列表的便捷入口（发布 / 测试用） */
+export function buildPosts(
+  app: App,
+  file: TFile,
+  bodyRaw: string,
+  source: SourceFolder,
+  groupBy: "record" | "file",
+  captionChars: number
+): FeedPost[] {
+  return parseFile(app, file, bodyRaw, source, groupBy, captionChars).posts;
 }
 
 /** 把同一篇文件的多条记录合并成一条（保留第一条有文字的描述） */

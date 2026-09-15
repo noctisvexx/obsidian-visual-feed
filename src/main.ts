@@ -103,6 +103,25 @@ export default class PhotoFeedPlugin extends Plugin {
       })
     );
 
+    /*
+     * 图片「迟到」的兜底（别的设备同步过来时最常见）：
+     * 解析一篇 md 的时机可能早于图片落盘、也早于 Obsidian 建好链接解析 —— 那时
+     * 引用解析不出来，只能记进待定引用表。链接一旦可用就把这几篇 md 重解析，
+     * 不必手动重建索引。
+     *  - resolved：所有文件的链接都解析完了（启动后 / 大批量改动后各来一次）
+     *  - changed ：某篇 md 的缓存刚建好 → 只看它是不是在待定表里
+     */
+    this.registerEvent(
+      this.app.metadataCache.on("resolved", () => {
+        this.indexer.scheduleSweep();
+      })
+    );
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (f) => {
+        if (f instanceof TFile) this.indexer.handleLinkResolved(f);
+      })
+    );
+
     this.app.workspace.onLayoutReady(() => {
       void this.initAfterLayout();
     });
@@ -129,6 +148,9 @@ export default class PhotoFeedPlugin extends Plugin {
       new Notice(`${PLUGIN_NAME}：索引完成，共 ${this.indexer.stats().photos} 个媒体`);
     } else {
       await this.indexer.refreshChanged();
+      // Obsidian 关着的时候别的设备同步进来的图片：那些 md 自身没变、启动对比发现不了，
+      // 但待定引用表里记着「谁在等这张图」→ 链接现在能解析了就补上（通常 0 次文件读取）。
+      await this.indexer.sweepPending();
     }
   }
 
